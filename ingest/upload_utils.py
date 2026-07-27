@@ -154,7 +154,7 @@ def materialize_uploaded_sources_from_zip_path(
         excluded |= {d.strip().lower() for d in excluded_dirs if d and d.strip()}
 
     import threading
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     with zipfile.ZipFile(zip_path) as zf:
         selected_infos: List[tuple[zipfile.ZipInfo, str]] = []
@@ -189,8 +189,6 @@ def materialize_uploaded_sources_from_zip_path(
         # lock; the actual disk write (the slow part on network/virtualized
         # mounts) happens outside the lock so it can overlap across threads.
         zip_lock = threading.Lock()
-        done_count = 0
-        progress_lock = threading.Lock()
 
         def _extract_one(item: tuple[zipfile.ZipInfo, str]) -> str:
             info, rel = item
@@ -198,12 +196,6 @@ def materialize_uploaded_sources_from_zip_path(
             with zip_lock:
                 data = zf.read(info)
             target.write_bytes(data)
-            nonlocal done_count
-            with progress_lock:
-                done_count += 1
-                idx = done_count
-            if on_progress:
-                on_progress(idx, total, rel)
             return rel
 
         default_workers = min(16, max(1, (os.cpu_count() or 4) * 2))
@@ -213,8 +205,17 @@ def materialize_uploaded_sources_from_zip_path(
             worker_count = default_workers
         if worker_count <= 0:
             worker_count = default_workers
+
+        selected: List[str] = []
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
-            selected = list(pool.map(_extract_one, selected_infos))
+            futures = {pool.submit(_extract_one, item) for item in selected_infos}
+            done_count = 0
+            for fut in as_completed(futures):
+                rel = fut.result()
+                selected.append(rel)
+                done_count += 1
+                if on_progress:
+                    on_progress(done_count, total, rel)
 
     selected = sorted(set(selected))
     if not selected:

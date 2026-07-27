@@ -1,0 +1,19 @@
+# Keep the build context small + never bake local state into the image.
+venv/
+.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.cache/
+.graph_checkpoints/
+.graph_edge_spill/
+runs/
+_docker_input/
+.git/
+.gitignore
+.env
+.DS_Store
+*.joblib
+Dockerfile
+docker-compose.yml

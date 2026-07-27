@@ -22,6 +22,10 @@ from .config import (
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
+    get_dump_graph_path,
+    get_dump_shard_size,
+    get_edge_spill_dir,
+    get_lowram_derive,
     get_resolve_workers,
     is_streaming_ingest_enabled,
     is_streaming_writer_enabled,
@@ -498,7 +502,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         })
 
     def _resolve_progress(done: int, total: int) -> None:
-        _log.info("[graph_ingest][repo=%s] resolving %s/%s refs", repo, done, total)
+        _log.info("[graph_ingest][repo=%s] resolving %s/%s refs (peak_rss=%.0fMB)", repo, done, total, _peak_rss_mb())
         if on_stage:
             on_stage("resolving", {"mode": "heuristic", "done": done, "total": total})
 
@@ -620,6 +624,48 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
                 _enqueue_write(new_nodes, to_write)
             return [e if e.type in defer_edge_types else e.to_slim() for e in batch]
 
+    # --- Option A: low-RAM derive setup (GRAPH_LOWRAM_DERIVE) ---------------
+    # Sink resolve's produced edges (the 100M+ CALLS etc.) straight to disk so
+    # they never accumulate in RAM — this is what kills the resolve peak. The
+    # small STRUCTURAL edges stay in RAM (resolve needs CONTAINS for its scope
+    # chain, and the derive passes need them for random access). PASSES are
+    # dropped here (dataflow regenerates them) — matching the normal path's
+    # `[e for e in all_edges if e.type != "PASSES"]`.
+    lowram = get_lowram_derive()
+    lowram_disk = None
+    if lowram:
+        if stream_writer or is_streaming_ingest_enabled():
+            raise RuntimeError(
+                "GRAPH_LOWRAM_DERIVE is standalone — turn OFF streaming ingest/writer "
+                "(GRAPH_STREAMING_INGEST / GRAPH_STREAMING_WRITER)."
+            )
+        if scip:
+            raise RuntimeError("GRAPH_LOWRAM_DERIVE does not support SCIP yet; set GRAPH_SCIP_ENABLED=false.")
+        if incremental:
+            raise RuntimeError("GRAPH_LOWRAM_DERIVE supports full (wipe) ingest only, not incremental.")
+        from .lowram_derive import DiskEdgeStore
+        _LOWRAM_STRUCT_TYPES = {"CONTAINS", "EXTENDS", "IMPLEMENTS", "ANNOTATED_WITH", "EXPOSES"}
+        spill_dir = os.path.join(get_edge_spill_dir(), repo)
+        import shutil as _shutil
+        _shutil.rmtree(spill_dir, ignore_errors=True)  # never reuse a stale spill
+        lowram_disk = DiskEdgeStore(spill_dir)
+        _struct_edges = [e for e in all_edges if e.type in _LOWRAM_STRUCT_TYPES]
+        for e in all_edges:
+            if e.type not in _LOWRAM_STRUCT_TYPES and e.type != "PASSES":
+                lowram_disk.append(e)
+        _log.info(
+            "[graph_ingest][repo=%s] lowram: %s structural edge(s) kept in RAM, %s bulk edge(s) spilled to %s",
+            repo, len(_struct_edges), len(lowram_disk), spill_dir,
+        )
+        all_edges = _struct_edges  # resolve reads structural for parent_of; bulk is on disk
+
+        def resolve_sink(new_nodes: list[Node], batch: list[Edge]) -> list:
+            # extra_nodes are returned by resolve() in full and added below, so
+            # new_nodes here can be ignored; retain nothing (return []) so resolve
+            # holds no edges — they live only on disk.
+            lowram_disk.extend(batch)
+            return []
+
     _beat("resolving", "building lookup indices")
     resolve_workers = get_resolve_workers()
     use_parallel_resolve = (
@@ -664,6 +710,14 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     all_refs = []
     _mark("resolving")
     _log.info("[graph_ingest][repo=%s] resolving: %s nodes, %s edges after resolve", repo, len(all_nodes), len(all_edges))
+
+    # Option A: low-RAM derive+write takes over here (bulk edges are on disk;
+    # all_edges holds only structural). Skips SCIP + the in-RAM tail entirely.
+    if lowram:
+        return _lowram_derive_and_write(
+            store, all_nodes, all_edges, lowram_disk, root, repo, coverage,
+            wipe, total_files, t0, stage_seconds, on_stage, _beat, _mark, _write_beat,
+        )
 
     # Stage 2 (precise): let SCIP own Python CALLS — type-precise and cross-file.
     # The heuristic keeps non-Python CALLS (e.g. Java, where scip-java needs a
@@ -835,6 +889,76 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     _mark("deriving")
     _log.info("[graph_ingest][repo=%s] deriving: %s nodes, %s edges before write", repo, len(all_nodes), len(all_edges))
 
+    # --- JOBLIB DUMP possibility (DISABLED — kept for re-enabling) ---------
+    # Dumps the fully resolved+derived graph to a sharded pickle and SKIPS the
+    # Neo4j write, so it can be loaded separately via load_graph_to_neo4j.py
+    # (retune batch size / workers / target Aura without redoing resolve).
+    # To re-enable: change `if False:` below back to `if dump_path:`, and
+    # re-enable --dump-graph in cli.py + the dump field in ui/app.py.
+    dump_path = get_dump_graph_path()
+    if False:  # was: if dump_path:
+        if stream_nodes or stream_writer:
+            raise RuntimeError(
+                "GRAPH_DUMP_GRAPH_PATH is set but streaming ingest/writer is enabled. "
+                "Dump mode needs the full graph in memory (streaming drops node text "
+                "and writes edges to Neo4j during resolve, leaving no single final graph "
+                "to dump). Re-run with streaming ingest AND streaming writer OFF."
+            )
+        import pickle
+        parent = os.path.dirname(os.path.abspath(dump_path))
+        os.makedirs(parent, exist_ok=True)
+        # Streamed, sharded dump: header + nodes + N edge shards, each a separate
+        # pickle frame in one file. The loader reads it frame-by-frame so it never
+        # holds all edges in RAM at once (essential at 100M+ edges). Nodes are far
+        # fewer, written as a single frame.
+        shard = get_dump_shard_size()
+        n_edges = len(all_edges)
+        n_shards = (n_edges + shard - 1) // shard if n_edges else 0
+        _beat(
+            "writing_graph",
+            f"dumping {len(all_nodes)} node(s) + {n_edges} edge(s) to {dump_path} "
+            f"in {n_shards} shard(s) of {shard}",
+        )
+        with open(dump_path, "wb") as fh:
+            pickle.dump(
+                {
+                    "format": "sharded-v1",
+                    "repo": repo,
+                    "n_nodes": len(all_nodes),
+                    "n_edges": n_edges,
+                    "shard_size": shard,
+                    "n_shards": n_shards,
+                },
+                fh, protocol=pickle.HIGHEST_PROTOCOL,
+            )
+            pickle.dump(all_nodes, fh, protocol=pickle.HIGHEST_PROTOCOL)
+            for i in range(0, n_edges, shard):
+                pickle.dump(all_edges[i:i + shard], fh, protocol=pickle.HIGHEST_PROTOCOL)
+                _beat("writing_graph", f"dumped edge shard, {min(i + shard, n_edges)}/{n_edges}")
+        _mark("writing_graph")
+        _log.info(
+            "[graph_ingest][repo=%s] dumped resolved graph to %s (%s node(s), %s edge(s), "
+            "%s shard(s); skipped Neo4j write)",
+            repo, dump_path, len(all_nodes), n_edges, n_shards,
+        )
+        if manifest is not None:
+            clear_checkpoint(ckpt_root, repo)
+        return IndexResult(
+            repo=repo,
+            files=total_files,
+            nodes=len(all_nodes),
+            edges=len(all_edges),
+            seconds=time.time() - t0,
+            coverage=dict(coverage),
+            validation=validation,
+            db_counts=(0, 0),
+            scip=scip_report,
+            scip_java=scip_java_report,
+            roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
+            dfg=DataflowResult(stats=dfg_stats),
+            stage_seconds=stage_seconds,
+        )
+
     if on_stage:
         on_stage("writing_graph", {"nodes": len(all_nodes), "edges": len(all_edges)})
     if stream_nodes:
@@ -899,6 +1023,123 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         db_counts=store.counts(repo),
         scip=scip_report,
         scip_java=scip_java_report,
+        roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
+        dfg=DataflowResult(stats=dfg_stats),
+        stage_seconds=stage_seconds,
+    )
+
+
+def _lowram_derive_and_write(
+    store, all_nodes, struct_edges, disk, root, repo, coverage,
+    wipe, total_files, t0, stage_seconds, on_stage, _beat, _mark, _write_beat,
+):
+    """Option A tail: dataflow -> derive -> write, streaming the bulk edges from
+    ``disk`` (a DiskEdgeStore) instead of holding them in RAM.
+
+    RAM stays ~= nodes + structural edges + derived edges + O(nodes) accumulators.
+    Reuses the in-RAM derive functions unchanged over a streamed edge view
+    (ChainedEdges); only polymorphic-dispatch needs the streamed variant (the
+    in-RAM one builds an all-CALLS set). Structural edges (CONTAINS/EXTENDS/…)
+    and derived edges (USES/BELONGS_TO/synthetic CALLS/READS/WRITES) are moderate
+    and kept in RAM; only CALLS + PASSES live on disk.
+    """
+    from .lowram_derive import ChainedEdges, streaming_polymorphic_calls
+
+    if on_stage:
+        on_stage("deriving", {})
+
+    # Dataflow — streams edges (disk holds no PASSES; dataflow regenerates them).
+    _beat("deriving", "dataflow: function summaries + PASSES edges")
+    dfg_result = run_dataflow(root, all_nodes, ChainedEdges(struct_edges, disk), repo)
+    disk.extend(dfg_result.passes_edges)
+    nodes_by_id = {n.id: n for n in all_nodes}
+    for fn_id, props in dfg_result.node_props.items():
+        fn_node = nodes_by_id.get(fn_id)
+        if fn_node is not None:
+            fn_node.dfg_json = props.get("dfg_json", "")
+            fn_node.dfg_returns_from_params = props.get("dfg_returns_from_params", [])
+            fn_node.dfg_hash = props.get("dfg_hash", "")
+    dfg_stats = dfg_result.stats
+    del dfg_result
+
+    derived: list[Edge] = []
+
+    # Overrides — needs CONTAINS/EXTENDS/IMPLEMENTS (all structural, in RAM).
+    # OVERRIDES feed module-USES (base_dep_types) and polymorphic, so they go
+    # back into the structural RAM list.
+    _beat("deriving", "overrides from class hierarchy")
+    struct_edges.extend(_derive_overrides(all_nodes, struct_edges))
+
+    _beat("deriving", "package tree")
+    pkg_nodes, pkg_edges = _build_package_tree(all_nodes, repo)
+    all_nodes.extend(pkg_nodes)
+    struct_edges.extend(pkg_edges)  # package CONTAINS
+
+    _beat("deriving", "component roles")
+    role_diag = _classify_roles(all_nodes, struct_edges)
+
+    # Module ownership + USES — iterates CONTAINS (RAM) + every base_dep_types
+    # edge (structural in RAM, CALLS/etc streamed from disk). Output is
+    # component/module-pair-bounded, kept in RAM.
+    _beat("deriving", "module ownership + USES aggregation")
+    mod_nodes, mod_edges, uses_edges = _derive_module_ownership_and_uses(
+        all_nodes, ChainedEdges(struct_edges, disk), repo,
+    )
+    all_nodes.extend(mod_nodes)
+    derived.extend(mod_edges)
+    derived.extend(uses_edges)
+
+    # Call metrics over the on-disk CALLS (pre-polymorphic — synthetic CALLS are
+    # added to `derived` after this, so they never inflate fan_in/fan_out).
+    _beat("deriving", "call metrics (fan_in/fan_out)")
+    _attach_call_metrics(all_nodes, disk)
+
+    _beat("deriving", "polymorphic dispatch CALLS")
+    derived.extend(streaming_polymorphic_calls(struct_edges, disk))
+
+    _beat("deriving", "SQL table links")
+    derived.extend(_derive_sql_links(all_nodes, root))
+
+    _beat("deriving", "validating graph")
+    validation = validate_graph(all_nodes, ChainedEdges(struct_edges, disk, derived))
+    _mark("deriving")
+
+    total_edges = len(struct_edges) + len(derived) + len(disk)
+    if on_stage:
+        on_stage("writing_graph", {"nodes": len(all_nodes), "edges": total_edges})
+    store.bootstrap()
+    if wipe:
+        store.wipe(repo)
+    _beat("writing_graph", f"writing {len(all_nodes)} node(s)")
+    store.write_nodes(all_nodes, on_batch=_write_beat("writing_graph", "nodes written"))
+    _beat("writing_graph", f"writing {len(struct_edges)} structural edge(s)")
+    store.write_edges(struct_edges, on_batch=_write_beat("writing_graph", "structural edges written"))
+    _beat("writing_graph", f"writing {len(derived)} derived edge(s)")
+    store.write_edges(derived, on_batch=_write_beat("writing_graph", "derived edges written"))
+    # Bulk edges: write one shard at a time so they never all sit in RAM again.
+    _beat("writing_graph", f"writing {len(disk)} bulk edge(s) from disk, shard by shard")
+    n_bulk = 0
+    for shard in disk.shards():
+        store.write_edges(shard)
+        n_bulk += len(shard)
+        _beat("writing_graph", f"bulk edges written {n_bulk}/{len(disk)}")
+    _mark("writing_graph")
+    _log.info("[graph_ingest][repo=%s] lowram writing_graph: wrote %s nodes, %s edges to Neo4j", repo, len(all_nodes), total_edges)
+
+    import shutil as _shutil
+    _shutil.rmtree(disk._dir, ignore_errors=True)  # spill served its purpose
+
+    return IndexResult(
+        repo=repo,
+        files=total_files,
+        nodes=len(all_nodes),
+        edges=total_edges,
+        seconds=time.time() - t0,
+        coverage=dict(coverage),
+        validation=validation,
+        db_counts=store.counts(repo),
+        scip=ScipReport(),
+        scip_java=ScipReport(),
         roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
         dfg=DataflowResult(stats=dfg_stats),
         stage_seconds=stage_seconds,

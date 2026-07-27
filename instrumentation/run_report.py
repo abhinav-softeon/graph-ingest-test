@@ -9,6 +9,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from .memory_sampler import MemorySampler
@@ -80,7 +81,14 @@ class RunReport:
         if mb > rec.mem_peak_mb:
             rec.mem_peak_mb = mb
         if self.inner_on_stage:
-            self.inner_on_stage(stage, detail)
+            self.inner_on_stage(stage, {
+                **detail,
+                "current_mb": round(mb, 1),
+                "stage_peak_mb": round(rec.mem_peak_mb, 1),
+                "overall_peak_mb": round(self.sampler.peak_mb(), 1),
+                "started_at": datetime.fromtimestamp(self.started_at).strftime("%H:%M:%S"),
+                "elapsed_s": round(time.time() - self.started_at, 1),
+            })
 
     def set_result_counts(self, **counts: Any) -> None:
         self.result_counts.update(counts)

@@ -1,0 +1,34 @@
+{
+  "run_id": "6ac6d62c",
+  "project": "experiment",
+  "started_at": 1784900491.925759,
+  "finished_at": 1784900496.704743,
+  "total_duration_s": 4.779,
+  "overall_peak_mb": 2251.5,
+  "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 42NFF} {gql_status_description: error: syntax error or access rule violation - permission/access denied. Access denied, see the security logs for details.}",
+  "config": {
+    "project": "experiment",
+    "repo_tag": "experiment",
+    "scip": false,
+    "extract_batch_size": 2000,
+    "extract_workers": 10,
+    "checkpoint_root": null,
+    "streaming_ingest": false,
+    "streaming_writer": false,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 16,
+    "resolve_workers": 1
+  },
+  "result_counts": {},
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 4.498,
+      "mem_start_mb": 2179.9,
+      "mem_end_mb": 2251.5,
+      "mem_peak_mb": 2251.5
+    }
+  ]
+}

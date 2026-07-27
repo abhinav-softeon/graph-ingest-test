@@ -1,0 +1,50 @@
+services:
+  graph-ingest:
+    build: .
+    image: graph-ingest-test
+    ports:
+      - "8501:8501"
+
+    # --- HARD 12 GB cap, NO swap (this is the whole point of the test) --------
+    # memswap_limit == mem_limit  ->  swap budget = 0, so the container CANNOT
+    # swap; if the build exceeds 12 GB it is OOM-killed instead of slowing down.
+    # NOTE: Docker Desktop's Linux VM must have MORE than 12 GB allocated
+    # (Settings -> Resources -> Memory >= 13-14 GB) or this limit can't be enforced.
+    mem_limit: 12g
+    memswap_limit: 12g
+    mem_swappiness: 0
+
+    environment:
+      # Neo4j runs on your Mac (Neo4j Desktop). bolt:// is a DIRECT connection,
+      # so the container reaches the host without any advertised-address rerouting.
+      NEO4J_URI: bolt://host.docker.internal:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      # Must be provided (shell `export NEO4J_PASSWORD=...` or a .env beside this
+      # file). Fails fast with this message if unset — avoids the auth error.
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?set NEO4J_PASSWORD (export it, or put it in a .env next to docker-compose.yml)}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+
+      # Low-RAM path ON for the test.
+      GRAPH_LOWRAM_DERIVE: "true"
+      GRAPH_EDGE_SPILL_DIR: /data/edge_spill
+      GRAPH_WRITE_BATCH_SIZE: "5000"
+      GRAPH_WRITE_WORKERS: "1"
+      GRAPH_STREAMING_INGEST: "false"
+      GRAPH_STREAMING_WRITER: "false"
+      GRAPH_SCIP_ENABLED: "false"
+      GRAPH_LOG_LEVEL: "INFO"
+
+    # Lets the container resolve the Mac host (automatic on Docker Desktop; this
+    # keeps it working on plain Linux Docker too).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      - edge_spill:/data/edge_spill    # fast named volume for the disk spill
+      - extract_cache:/app/.cache      # persist extraction cache across runs
+      - ./_docker_input:/data/input    # drop your source .zip here (host side)
+      - ./runs:/app/runs               # run reports land on the host
+
+volumes:
+  edge_spill:
+  extract_cache:

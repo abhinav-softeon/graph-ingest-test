@@ -32,6 +32,7 @@ def apply_ingestion_toggles(
     cache_io_workers: Optional[int] = None,
     zip_extract_workers: Optional[int] = None,
     resolve_workers: Optional[int] = None,
+    write_workers: Optional[int] = None,
 ) -> None:
     """Set every GRAPH_* env var this app exposes from plain Python values.
 
@@ -65,3 +66,5 @@ def apply_ingestion_toggles(
         os.environ["GRAPH_ZIP_EXTRACT_WORKERS"] = str(zip_extract_workers)
 
     os.environ["GRAPH_RESOLVE_WORKERS"] = str(resolve_workers or 1)
+
+    os.environ["GRAPH_WRITE_WORKERS"] = str(write_workers or 1)

@@ -6,19 +6,20 @@ before being interpolated into Cypher (Cypher can't parametrize them).
 """
 from __future__ import annotations
 
+import itertools
 import time
 from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from typing import Callable, Iterable, Iterator, Optional
 
 from neo4j import GraphDatabase
 
-from .config import Neo4jConfig
+from .config import Neo4jConfig, get_write_batch_size, get_write_workers
 from .models import Edge, Node
 from .schema import SHARED_LABEL, assert_edge, assert_label
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
-
-_BATCH = 5000
 
 
 class GraphStore:
@@ -117,6 +118,66 @@ class GraphStore:
             self._run(f"MATCH (n:{SHARED_LABEL} {{repo:$repo}}) DETACH DELETE n", repo=repo)
         _log.info("[graph_store][repo=%s] wipe: done in %.3fs", repo, time.time() - t0)
 
+    def _write_in_batches(
+        self,
+        batches: Iterator[tuple[str, list[dict]]],
+        total: int,
+        on_batch: Optional[Callable[[int, int], None]] = None,
+    ) -> int:
+        """Run a sequence of (query, rows) batches, each in its own managed
+        write transaction, returning the total rows written.
+
+        ``batches`` is a lazy iterator (not a pre-built list) so at most
+        ``get_write_workers()`` batches' worth of prop-dicts exist in memory
+        at once — same discipline as the old strictly-sequential code, just
+        bounded by worker count instead of always being exactly 1.
+
+        Sequential (workers<=1, the default): identical to the old
+        behavior — one ``session.run`` at a time via ``self._run``.
+
+        Parallel (workers>1): each batch runs via ``session.execute_write``
+        (a managed transaction), which auto-retries on Neo4j's transient
+        deadlock error — necessary because concurrent batches (especially
+        edges, which can share endpoint nodes across types/batches) can
+        legitimately deadlock; raw ``session.run`` never retries.
+        ``on_batch`` is only ever invoked from this method's own thread
+        (never from inside a worker), matching zip-extraction's fix earlier:
+        it may end up calling into Streamlit, which requires the main
+        thread.
+        """
+        write_workers = get_write_workers()
+        written = 0
+
+        if write_workers <= 1:
+            for q, rows in batches:
+                self._run(q, rows=rows)
+                written += len(rows)
+                if on_batch:
+                    on_batch(written, total)
+            return written
+
+        def _run_one(q: str, rows: list[dict]) -> int:
+            with self._driver.session(database=self._cfg.database) as s:
+                s.execute_write(lambda tx: tx.run(q, rows=rows).consume())
+            return len(rows)
+
+        with ThreadPoolExecutor(max_workers=write_workers) as pool:
+            in_flight: dict = {}
+            for q, rows in itertools.islice(batches, write_workers):
+                in_flight[pool.submit(_run_one, q, rows)] = None
+            while in_flight:
+                done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    written += fut.result()
+                    del in_flight[fut]
+                    if on_batch:
+                        on_batch(written, total)
+                    nxt = next(batches, None)
+                    if nxt is not None:
+                        q, rows = nxt
+                        in_flight[pool.submit(_run_one, q, rows)] = None
+        return written
+
     def write_nodes(self, nodes: list[Node], on_batch=None):
         """``on_batch(written, total)``: optional per-batch callback. A
         multi-hundred-thousand-node write is one of the longest operations in
@@ -129,62 +190,67 @@ class GraphStore:
         # for the whole graph, would duplicate all of it (once as Node
         # objects — still held by the caller — once as plain dicts) right at
         # the point overall memory is already at its peak for the whole
-        # pipeline. Convert to props dicts one _BATCH slice at a time instead
-        # so at most one batch's worth of dicts exists at once.
+        # pipeline. _write_in_batches's lazy generator converts one _BATCH
+        # slice at a time (times get_write_workers() in flight), not all at once.
         by_label: dict[str, list[Node]] = defaultdict(list)
         for n in nodes:
             by_label[assert_label(n.label)].append(n)
         t0 = time.time()
-        written = 0
-        for label, label_nodes in by_label.items():
-            q = (
-                f"UNWIND $rows AS row "
-                f"MERGE (n:{SHARED_LABEL} {{id: row.id}}) "
-                f"SET n:{label}, n += row.props, n.last_indexed = $ts"
-            )
-            for i in range(0, len(label_nodes), _BATCH):
-                rows = [{"id": n.id, "props": n.props()} for n in label_nodes[i:i + _BATCH]]
-                self._run(q, rows=rows, ts=ts)
-                written += len(rows)
-                if on_batch:
-                    on_batch(written, len(nodes))
+        batch = get_write_batch_size()
+
+        def _batches() -> Iterable[tuple[str, list[dict]]]:
+            for label, label_nodes in by_label.items():
+                # last_indexed comes from row.ts (not a top-level $ts param) —
+                # each (query, rows) batch is self-contained since
+                # _write_in_batches only ever passes a single `rows` param.
+                q = (
+                    f"UNWIND $rows AS row "
+                    f"MERGE (n:{SHARED_LABEL} {{id: row.id}}) "
+                    f"SET n:{label}, n += row.props, n.last_indexed = row.ts"
+                )
+                for i in range(0, len(label_nodes), batch):
+                    rows = [{"id": n.id, "props": n.props(), "ts": ts} for n in label_nodes[i:i + batch]]
+                    yield q, rows
+
+        written = self._write_in_batches(iter(_batches()), len(nodes), on_batch)
         _log.info(
             "[graph_store] write_nodes: wrote %s node(s) across %s label(s) in %.3fs (%s)",
-            len(nodes), len(by_label), time.time() - t0,
+            written, len(by_label), time.time() - t0,
             ", ".join(f"{lbl}={len(ns)}" for lbl, ns in by_label.items()),
         )
 
     def write_edges(self, edges: list[Edge], on_batch=None):
         # Same reasoning as write_nodes: bucket by type only (references, not
-        # copies), convert to props dicts one _BATCH slice at a time.
+        # copies), convert to props dicts lazily via _write_in_batches.
         # ``on_batch(written, total)``: see write_nodes — keeps the job
         # heartbeat alive through a long write.
         by_type: dict[str, list[Edge]] = defaultdict(list)
         for e in edges:
             by_type[assert_edge(e.type)].append(e)
         t0 = time.time()
-        written = 0
-        for rtype, type_edges in by_type.items():
-            q = (
-                f"UNWIND $rows AS row "
-                f"MATCH (a:{SHARED_LABEL} {{id: row.src}}) "
-                f"MATCH (b:{SHARED_LABEL} {{id: row.dst}}) "
-                f"MERGE (a)-[r:{rtype}]->(b) "
-                f"SET r += row.props"
-            )
-            for i in range(0, len(type_edges), _BATCH):
-                rows = [
-                    {"src": e.src, "dst": e.dst, "props": e.props()}
-                    for e in type_edges[i:i + _BATCH]
-                ]
-                self._run(q, rows=rows)
-                written += len(rows)
-                if on_batch:
-                    on_batch(written, len(edges))
+        batch = get_write_batch_size()
+
+        def _batches() -> Iterable[tuple[str, list[dict]]]:
+            for rtype, type_edges in by_type.items():
+                q = (
+                    f"UNWIND $rows AS row "
+                    f"MATCH (a:{SHARED_LABEL} {{id: row.src}}) "
+                    f"MATCH (b:{SHARED_LABEL} {{id: row.dst}}) "
+                    f"MERGE (a)-[r:{rtype}]->(b) "
+                    f"SET r += row.props"
+                )
+                for i in range(0, len(type_edges), batch):
+                    rows = [
+                        {"src": e.src, "dst": e.dst, "props": e.props()}
+                        for e in type_edges[i:i + batch]
+                    ]
+                    yield q, rows
+
+        written = self._write_in_batches(iter(_batches()), len(edges), on_batch)
         type_counts = {k: len(v) for k, v in by_type.items()}
         _log.info(
             "[graph_store] write_edges: wrote %s edge(s) across %s type(s) in %.3fs (%s)",
-            len(edges), len(type_counts), time.time() - t0,
+            written, len(type_counts), time.time() - t0,
             ", ".join(f"{t}={c}" for t, c in type_counts.items()),
         )
 
@@ -201,8 +267,13 @@ class GraphStore:
             f"SET n += row.props"
         )
         t0 = time.time()
-        for i in range(0, len(rows), _BATCH):
-            self._run(q, rows=rows[i:i + _BATCH])
+        batch = get_write_batch_size()
+
+        def _batches() -> Iterable[tuple[str, list[dict]]]:
+            for i in range(0, len(rows), batch):
+                yield q, rows[i:i + batch]
+
+        self._write_in_batches(iter(_batches()), len(rows))
         _log.info("[graph_store] write_semantics: patched %s node(s) in %.3fs", len(rows), time.time() - t0)
 
     def file_shas(self, namespace: str) -> dict[str, str]:
@@ -307,3 +378,23 @@ class GraphStore:
             token=token,
         )
         _log.info("[graph_store][repo=%s] release_lock: released (token=%s)", namespace, token)
+
+    def force_release_lock(self, namespace: str) -> bool:
+        """Clear the per-namespace lock regardless of token — for recovering from
+        a hard-killed job (Ctrl-C / OOM / `docker stop`) whose release_lock
+        finally-block never ran, so the lock would otherwise sit stuck until the
+        stale timeout. Clears only the lock fields; GraphMeta identity/status/
+        codebase_hash are untouched.
+
+        ONLY use when you are sure no build for this namespace is actually
+        running — force-unlocking a live job lets a second writer start
+        concurrently. Returns True if a GraphMeta node was found (whether or not
+        it was locked)."""
+        rows = self.read(
+            "MATCH (g:GraphMeta {namespace:$namespace}) "
+            "SET g.locked_at = NULL, g.lock_token = NULL, g.lock_job_id = NULL "
+            "RETURN 1 AS ok",
+            namespace=namespace,
+        )
+        _log.info("[graph_store][repo=%s] force_release_lock: cleared lock (existed=%s)", namespace, bool(rows))
+        return bool(rows)

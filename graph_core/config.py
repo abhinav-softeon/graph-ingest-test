@@ -223,6 +223,23 @@ def get_resolve_workers() -> int:
     return 1
 
 
+def get_write_workers() -> int:
+    """Thread-pool size for concurrent Neo4j write batches (store.py).
+    1 (default) = today's untouched sequential write. >1 opts into
+    concurrent batches — threads, not processes, since a write batch is
+    I/O-bound (waiting on the Neo4j server), not CPU-bound, so this carries
+    none of the fork/spawn overhead extraction/resolve workers do."""
+    env = os.environ.get("GRAPH_WRITE_WORKERS")
+    if env:
+        try:
+            n = int(env)
+            if n > 0:
+                return n
+        except ValueError:
+            pass
+    return 1
+
+
 def get_lock_stale_seconds() -> int:
     """How long (seconds) a graph index lock may be held before it's
     considered stale and eligible to be reclaimed by another worker."""
@@ -230,6 +247,54 @@ def get_lock_stale_seconds() -> int:
         return int(os.environ.get("GRAPH_INDEX_LOCK_STALE_SECONDS", "1800"))
     except ValueError:
         return 1800
+
+
+def get_lowram_derive() -> bool:
+    """Opt-in low-RAM derive path (GRAPH_LOWRAM_DERIVE). When on, the pre-derive
+    edge set is spilled to disk (DiskEdgeStore) and the derive passes stream it
+    instead of holding all edges (100M+) in RAM. Off by default — the proven
+    in-RAM path is unchanged. See graph_core/lowram_derive.py."""
+    return os.environ.get("GRAPH_LOWRAM_DERIVE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def get_edge_spill_dir() -> str:
+    """Directory for the low-RAM derive edge spill (GRAPH_EDGE_SPILL_DIR).
+    Default ./.graph_edge_spill. Only used when GRAPH_LOWRAM_DERIVE is on."""
+    return os.environ.get("GRAPH_EDGE_SPILL_DIR", "").strip() or ".graph_edge_spill"
+
+
+def get_write_batch_size() -> int:
+    """Rows per Neo4j write transaction (store.py write_nodes/write_edges/
+    write_semantics). Smaller = less transaction memory (safer against
+    dbms.memory.transaction.total.max, esp. with >1 write worker) but more
+    round-trips; larger = fewer commits but heavier transactions. Default 5000."""
+    try:
+        n = int(os.environ.get("GRAPH_WRITE_BATCH_SIZE", "5000"))
+        return n if n > 0 else 5000
+    except ValueError:
+        return 5000
+
+
+def get_dump_shard_size() -> int:
+    """Edges per shard when dumping the resolved graph (GRAPH_DUMP_SHARD_SIZE).
+    The dump is written — and read back by load_graph_to_neo4j.py — one shard at
+    a time, so the loader never holds all edges in RAM simultaneously. Matters for
+    very large graphs (100M+ edges), where a single-blob load would OOM. Default
+    2,000,000."""
+    try:
+        n = int(os.environ.get("GRAPH_DUMP_SHARD_SIZE", "2000000"))
+        return n if n > 0 else 2_000_000
+    except ValueError:
+        return 2_000_000
+
+
+def get_dump_graph_path() -> str:
+    """If set (GRAPH_DUMP_GRAPH_PATH), index_repo dumps the fully
+    resolved+derived (nodes, edges) to this joblib path and SKIPS the Neo4j
+    write, so the expensive extract/resolve/derive is done once and the graph
+    can be loaded into Neo4j separately (see load_graph_to_neo4j.py). Requires
+    streaming ingest/writer OFF (they hold no single final graph in memory)."""
+    return os.environ.get("GRAPH_DUMP_GRAPH_PATH", "").strip()
 
 
 @dataclass(frozen=True)

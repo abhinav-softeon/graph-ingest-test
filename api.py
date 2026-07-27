@@ -60,6 +60,7 @@ async def start_build(
     cache_io_workers: Optional[int] = Form(None),
     zip_extract_workers: Optional[int] = Form(None),
     resolve_workers: int = Form(1),
+    write_workers: int = Form(1),
 ):
     build_id = uuid.uuid4().hex[:12]
     fd, tmp_zip_path = tempfile.mkstemp(suffix=".zip", prefix=f"upload_{build_id}_")
@@ -81,6 +82,7 @@ async def start_build(
         cache_io_workers=cache_io_workers,
         zip_extract_workers=zip_extract_workers,
         resolve_workers=resolve_workers,
+        write_workers=write_workers,
     )
     _BUILDS[build_id] = {"status": "queued", "project": project}
     background_tasks.add_task(_run_build, build_id, tmp_zip_path, project, toggles)

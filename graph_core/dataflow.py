@@ -16,10 +16,12 @@ from __future__ import annotations
 import json
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import Optional
+
+import psutil
 
 from .config import extract_worker_count
 from .extractors.common import iter_descendants, text
@@ -28,6 +30,13 @@ from .models import Confidence, Edge, Node, Origin
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
+
+
+def _peak_rss_mb() -> float:
+    """Peak-so-far RSS of THIS process — main process only, mirrors
+    pipeline.py's helper of the same name (dataflow runs its own
+    ProcessPoolExecutor pass, separately from pipeline.py's)."""
+    return psutil.Process().memory_info().rss / (1024 * 1024)
 
 # Well-known builtins that are terminal wrt taint — skip ArgFlow rows for
 # them unless from_params/from_fields is non-empty (keeps dfg_json compact).
@@ -763,8 +772,17 @@ def run_dataflow(
                     i: pool.submit(_summarize_file_task, root, relpath, lang, fn_metas)
                     for i, (relpath, lang, fn_metas) in enumerate(tasks)
                 }
-                for i in range(len(tasks)):
-                    results_by_idx[i] = list(idx_to_future[i].result())
+                future_to_idx = {f: i for i, f in idx_to_future.items()}
+                done_count = 0
+                for fut in as_completed(idx_to_future.values()):
+                    i = future_to_idx[fut]
+                    results_by_idx[i] = list(fut.result())
+                    done_count += 1
+                    if done_count % 200 == 0 or done_count == len(tasks):
+                        _log.info(
+                            "[graph_dataflow][repo=%s] summarizing %s/%s file(s) (peak_rss=%.0fMB)",
+                            repo, done_count, len(tasks), _peak_rss_mb(),
+                        )
         except BrokenProcessPool as exc:
             pool_broken_exc = exc
         if pool_broken_exc is not None:

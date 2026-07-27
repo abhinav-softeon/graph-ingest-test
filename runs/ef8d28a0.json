@@ -1,0 +1,34 @@
+{
+  "run_id": "ef8d28a0",
+  "project": "experiment",
+  "started_at": 1785124406.389178,
+  "finished_at": 1785124408.312463,
+  "total_duration_s": 1.923,
+  "overall_peak_mb": 1474.2,
+  "error": "Couldn't connect to localhost:7687 (resolved to ('[::1]:7687', '127.0.0.1:7687')):\nFailed to establish connection to ResolvedIPv6Address(('::1', 7687, 0, 0)) (reason [Errno 61] Connection refused)\nFailed to establish connection to ResolvedIPv4Address(('127.0.0.1', 7687)) (reason [Errno 61] Connection refused)",
+  "config": {
+    "project": "experiment",
+    "repo_tag": "experiment",
+    "scip": false,
+    "extract_batch_size": 2000,
+    "extract_workers": 10,
+    "checkpoint_root": "./.graph_checkpoints",
+    "streaming_ingest": true,
+    "streaming_writer": true,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 16,
+    "resolve_workers": 1
+  },
+  "result_counts": {},
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 1.641,
+      "mem_start_mb": 1350.5,
+      "mem_end_mb": 1474.2,
+      "mem_peak_mb": 1474.2
+    }
+  ]
+}

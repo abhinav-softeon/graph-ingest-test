@@ -53,9 +53,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--cache-io-workers", type=int, default=None, help="Thread-pool size for extract-cache I/O (default 16)")
     p.add_argument("--zip-extract-workers", type=int, default=None, help="Thread-pool size for unzipping (default min(16, cpu*2))")
     p.add_argument("--resolve-workers", type=int, default=1, help="EXPERIMENTAL: process-pool size for parallel resolve() (default 1 = sequential)")
+    p.add_argument("--write-workers", type=int, default=1, help="Thread-pool size for concurrent Neo4j write batches (default 1 = sequential)")
+    p.add_argument("--write-batch-size", type=int, default=None, help="Rows per Neo4j write transaction (default 5000)")
 
     p.add_argument("--sample-interval", type=float, default=0.5, help="Memory-sampler poll interval in seconds (default 0.5)")
     p.add_argument("--runs-dir", default="runs", help="Directory for run reports (default ./runs)")
+
+    # JOBLIB DUMP possibility (DISABLED — kept for re-enabling; see pipeline.py):
+    # p.add_argument("--dump-graph", default=None, help="Dump the fully resolved+derived graph to this joblib path and SKIP the Neo4j write (load it later with load_graph_to_neo4j.py). Requires streaming OFF.")
 
     p.add_argument("--neo4j-uri", default=None)
     p.add_argument("--neo4j-user", default=None)
@@ -75,6 +80,11 @@ def main(argv=None) -> int:
         os.environ["NEO4J_PASSWORD"] = args.neo4j_password
     if args.neo4j_database:
         os.environ["NEO4J_DATABASE"] = args.neo4j_database
+    # JOBLIB DUMP possibility (DISABLED — kept for re-enabling; see pipeline.py):
+    # if args.dump_graph:
+    #     os.environ["GRAPH_DUMP_GRAPH_PATH"] = args.dump_graph
+    if args.write_batch_size:
+        os.environ["GRAPH_WRITE_BATCH_SIZE"] = str(args.write_batch_size)
 
     apply_ingestion_toggles(
         chunking=args.chunking,
@@ -91,6 +101,7 @@ def main(argv=None) -> int:
         cache_io_workers=args.cache_io_workers,
         zip_extract_workers=args.zip_extract_workers,
         resolve_workers=args.resolve_workers,
+        write_workers=args.write_workers,
     )
 
     def _print_stage(stage: str, detail: dict) -> None:
