@@ -16,20 +16,16 @@ import psutil
 
 from . import extractors
 from .canonical_ir import CanonicalBundle, from_extractor, merge_bundles
+from .cypher_derive_reference import synthesize_polymorphic_calls_cypher
 from .checkpoint import RefStream, batch_exists, clear_checkpoint, init_manifest, load_batch, save_batch
 from .config import checkpoint_root as get_checkpoint_root
 from .config import (
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
-    get_dump_graph_path,
-    get_dump_shard_size,
-    get_edge_spill_dir,
-    get_lowram_derive,
     get_resolve_workers,
     is_streaming_ingest_enabled,
 )
-from .dataflow import DataflowResult, run_dataflow
 from .discovery import FileInfo, discover, list_candidate_relpaths
 from .extract_cache import get_extract_cache
 from .ids import make_id
@@ -43,10 +39,26 @@ from .scip_resolver import (
     start_scip_java_job,
 )
 from .store import GraphStore
-from .validator import validate_graph
+from .validator import EdgeStats, validate_graph
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
+
+# The ONLY edge types retained in RAM past the resolve sink. The derive passes
+# re-read these arbitrarily: CONTAINS builds the parent/scope chain,
+# EXTENDS/IMPLEMENTS build the class hierarchy for _derive_overrides,
+# ANNOTATED_WITH/EXPOSES/DEFINES are structural and tiny. All are bounded by
+# DECLARATIONS rather than call sites — roughly 2-3 per node — so they are
+# orders of magnitude fewer than the CALLS bulk.
+#
+# Everything else (the 100M+ CALLS and friends) is written to Neo4j by the sink
+# and then dropped on the floor: nothing downstream reads it. That is item #2b,
+# and it only became possible once validate_graph stopped scanning edges
+# (item #13's EdgeStats) and polymorphic dispatch moved into the database
+# (item #12) — those were the last two full-edge-set consumers.
+_RETAINED_EDGE_TYPES = frozenset({
+    "CONTAINS", "DEFINES", "EXTENDS", "IMPLEMENTS", "ANNOTATED_WITH", "EXPOSES",
+})
 
 OnStage = "Callable[[str, dict], None] | None"
 
@@ -84,8 +96,11 @@ class IndexResult:
     db_counts: dict = field(default_factory=dict)
     scip: ScipReport = field(default_factory=ScipReport)
     scip_java: ScipReport = field(default_factory=ScipReport)
-    roles: dict = field(default_factory=dict)  # (role, source) -> count diagnostics
-    dfg: DataflowResult = field(default_factory=DataflowResult)
+    # `roles: dict` lived here — role-classification diagnostics. The pass that
+    # produced them was deleted in item #3, so every construction below passed
+    # a hardcoded {}. Removed.
+    # `dfg: DataflowResult` lived here — the DFG pass and its stats were
+    # removed with dfg_json (MEMORY_ARCHITECTURE_PLAN.md item #10).
     stage_seconds: dict[str, float] = field(default_factory=dict)  # per-stage timing breakdown
 
 
@@ -124,7 +139,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         The job's staleness watchdog (job_maintenance.recover_stale_running_jobs)
         keys off `heartbeat_at`, which only advances when on_stage fires. Several
         steps here run for many minutes without emitting anything — the
-        pre-resolve node write, resolver index build, dataflow, and each derive
+        pre-resolve node write, resolver index build, and each derive
         pass — so on a large repo a perfectly healthy job looked dead and got
         requeued (then, having used its one requeue, abandoned with "skipping
         redispatch"). Every such step now beats, and logs, so both the watchdog
@@ -222,17 +237,25 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # endpoints must already exist in Neo4j when edges are written) —
     # satisfied unconditionally now that stream_nodes always runs first, same
     # ordering guarantee as before, just no longer optional on either side.
-    # Two edge types must be DEFERRED (held full, written only at the
-    # post-dataflow write point) because a later stage rewrites them in RAM and
-    # an eager write would leave stale rows in Neo4j:
-    #   - PASSES: dataflow drops every pre-dataflow PASSES edge and emits its
-    #     own (they're never written pre-dataflow on the legacy path either);
+    # One edge type must be DEFERRED (held full, written only at the
+    # post-dataflow write point) because a later stage rewrites it in RAM and an
+    # eager write would leave stale rows in Neo4j:
     #   - CALLS, only when SCIP may run: scip_python/scip_java replace whole
     #     languages' CALLS post-resolve. With scip off (the common/prod path)
-    #     CALLS flush eagerly like everything else.
+    #     CALLS flush eagerly like everything else, and nothing is deferred at
+    #     all.
+    # PASSES used to be deferred here too (the DFG pass replaced the extractor's
+    # with its own); both the edges and that pass are gone — items #9 and #10.
     stream_writer = True
-    defer_edge_types = {"PASSES"} | ({"CALLS"} if scip else set())
+    defer_edge_types = {"CALLS"} if scip else set()
     streamed_ref_count = 0
+
+    # A GRAPH_LOWRAM_DERIVE admission check lived here. The flag spilled the
+    # bulk edges to disk so derive could stream them; with nothing left that
+    # reads the bulk (items #12/#2b) the spill became write-only, so the whole
+    # path was removed — the default path now gives what it was invented for,
+    # without the disk I/O. See MEMORY_ARCHITECTURE_PLAN.md item #16.
+
     if manifest is not None:
         _log.info(
             "[graph_ingest][repo=%s] checkpointing enabled: %s batch(es), %s already done",
@@ -493,6 +516,16 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         repo, len(all_nodes), len(all_edges), streamed_ref_count if stream_refs else len(all_refs),
     )
 
+    # Edge tallies for validate_graph, accumulated as edges are produced instead
+    # of scanned once at the end (see validator.EdgeStats). `known_node_ids` is
+    # kept in step with node creation so the dangling check can be answered at
+    # add time; every edge's endpoints exist by the time it is counted (the
+    # extraction bundle is self-consistent, and the resolve sink hands over a
+    # batch's new nodes before the batch).
+    edge_stats = EdgeStats()
+    known_node_ids: set[str] = {n.id for n in all_nodes}
+    edge_stats.add(all_edges, known_node_ids)
+
     # Refs source for resolve: RefStream (disk-backed, one batch at a time) under
     # streaming ingest, else the in-memory all_refs list (unchanged path).
     refs_source = RefStream(ckpt_root, repo, num_batches, total=streamed_ref_count) if stream_refs else all_refs
@@ -515,16 +548,16 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
 
     # Phase 2 (streaming): persist the extracted nodes to Neo4j NOW — before the
     # memory-heavy resolve/derive tail — then drop their bulky/unused fields from
-    # RAM (none are read after extraction by resolve/scip/dataflow/derive — see
+    # RAM (none are read after extraction by resolve/scip/derive — see
     # MEMORY_ARCHITECTURE_PLAN.md item #1 for the full field-by-field audit;
     # notably end_line/param_names/body_hash/repo are NOT cleared here — they
-    # ARE read downstream, by scip_resolver.py/dataflow.py/_derive_sql_links).
+    # ARE read downstream, by scip_resolver.py/_derive_sql_links).
     # Neo4j is their source of truth from here. Wipe/delete must precede this
     # early write. Nodes created later (resolve's synthesized nodes, package
-    # nodes) are tracked in late_nodes and written at the end; derived
-    # properties (call metrics, DFG) are patched onto the already-written
-    # nodes at the end via write_semantics, yielding the same final Neo4j
-    # state as one full write.
+    # nodes) are tracked in late_nodes and written at the end. No derive pass
+    # sets a node property any more (items #3/#8/#10), so nothing needs patching
+    # back onto the already-written nodes — the final Neo4j state matches one
+    # full write.
     late_nodes: list[Node] = []
     if stream_nodes:
         store.bootstrap()
@@ -535,24 +568,23 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         _beat("resolving", f"writing {len(all_nodes)} extracted node(s) to Neo4j")
         store.write_nodes(all_nodes, on_batch=_write_beat("resolving", "nodes written"))
         _log.info("[graph_ingest][repo=%s] streaming ingest: wrote %s extracted node(s) to Neo4j pre-resolve", repo, len(all_nodes))
-        for n in all_nodes:
-            n.docstring = ""
-            n.signature = ""
-            n.param_types = []
-            n.return_type = ""
-            n.end_col = 0
-            n.display_name = ""
-            n.visibility = ""
-            n.modifiers = []
-            n.is_static = False
-            n.is_abstract = False
-            n.is_async = False
-            n.host = ""
-            n.loc = 0
-            n.cyclomatic = 0
-            n.branch_count = 0
-            n.loop_count = 0
-            n.is_lock = False
+        # Replace every extracted node with its slim projection, IN PLACE so the
+        # full object is freed as we go rather than briefly holding both lists.
+        # This used to be a field-blanking loop that zeroed the bulky values but
+        # kept the 40-slot Node shell alive to the end of the run; projecting
+        # instead drops the shell too (360 B -> 160 B per node) and, because the
+        # slim record now carries the FULL post-resolve read set, needs no second
+        # projection for resolve. Neo4j is these nodes' source of truth from here.
+        #
+        # Nodes created later (resolve's synthesized nodes, package nodes) stay
+        # full Node objects — they have not been written yet and store.write_nodes
+        # needs .props(). So all_nodes is a mixed list from here on, exactly as
+        # all_edges is for SlimEdge; every consumer past this point reads only
+        # SLIM_NODE_FIELDS, which test_slim_node.py enforces by AST scan.
+        _beat("resolving", f"projecting {len(all_nodes)} node(s) to the slim record")
+        for _i in range(len(all_nodes)):
+            all_nodes[_i] = all_nodes[_i].to_slim()
+
         if stream_writer:
             # Step 11: the structural (extraction-emitted) edges are in final
             # form already — flush them to Neo4j now and keep only SlimEdge
@@ -616,14 +648,15 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # test_slim_node.py's guardrail), so this produces byte-identical edges — it
     # is the correctness scaffold the regression oracle validates before Phase 2
     # stops holding the full nodes at all. Off by default (full nodes passed).
-    if is_streaming_ingest_enabled():
-        resolve_nodes = [n.to_slim() for n in all_nodes]
-        _log.info(
-            "[graph_ingest][repo=%s] streaming ingest: resolving against slim projection of %s node(s)%s",
-            repo, len(resolve_nodes), " (refs streamed from disk)" if stream_refs else "",
-        )
-    else:
-        resolve_nodes = all_nodes
+    # all_nodes is ALREADY the slim projection (see the pre-resolve write above),
+    # so resolve reads it directly. This used to build a SECOND slim list while
+    # the full one stayed alive — 360 B + 128 B per node held simultaneously
+    # through the longest phase of the run.
+    resolve_nodes = all_nodes
+    _log.info(
+        "[graph_ingest][repo=%s] resolving against slim projection of %s node(s)%s",
+        repo, len(resolve_nodes), " (refs streamed from disk)" if stream_refs else "",
+    )
     # Disable the resolve-state checkpoint under streaming: it re-serializes the
     # entire (growing) out_edges list to disk every 60s/200k refs, which is
     # O(n^2) I/O on a multi-million-ref repo — the actual cause of the mid-resolve
@@ -642,52 +675,23 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     resolve_sink = None
     if stream_writer:
         def resolve_sink(new_nodes: list[Node], batch: list[Edge]) -> list:
+            known_node_ids.update(n.id for n in new_nodes)
+            edge_stats.add(batch, known_node_ids)
             to_write = [e for e in batch if e.type not in defer_edge_types]
             if new_nodes or to_write:
                 _enqueue_write(new_nodes, to_write)
-            return [e if e.type in defer_edge_types else e.to_slim() for e in batch]
-
-    # --- Option A: low-RAM derive setup (GRAPH_LOWRAM_DERIVE) ---------------
-    # Sink resolve's produced edges (the 100M+ CALLS etc.) straight to disk so
-    # they never accumulate in RAM — this is what kills the resolve peak. The
-    # small STRUCTURAL edges stay in RAM (resolve needs CONTAINS for its scope
-    # chain, and the derive passes need them for random access). PASSES are
-    # dropped here (dataflow regenerates them) — matching the normal path's
-    # `[e for e in all_edges if e.type != "PASSES"]`.
-    lowram = get_lowram_derive()
-    lowram_disk = None
-    if lowram:
-        if stream_writer or is_streaming_ingest_enabled():
-            raise RuntimeError(
-                "GRAPH_LOWRAM_DERIVE is standalone — turn OFF streaming ingest/writer "
-                "(GRAPH_STREAMING_INGEST / GRAPH_STREAMING_WRITER)."
-            )
-        if scip:
-            raise RuntimeError("GRAPH_LOWRAM_DERIVE does not support SCIP yet; set GRAPH_SCIP_ENABLED=false.")
-        if incremental:
-            raise RuntimeError("GRAPH_LOWRAM_DERIVE supports full (wipe) ingest only, not incremental.")
-        from .lowram_derive import DiskEdgeStore
-        _LOWRAM_STRUCT_TYPES = {"CONTAINS", "EXTENDS", "IMPLEMENTS", "ANNOTATED_WITH", "EXPOSES"}
-        spill_dir = os.path.join(get_edge_spill_dir(), repo)
-        import shutil as _shutil
-        _shutil.rmtree(spill_dir, ignore_errors=True)  # never reuse a stale spill
-        lowram_disk = DiskEdgeStore(spill_dir)
-        _struct_edges = [e for e in all_edges if e.type in _LOWRAM_STRUCT_TYPES]
-        for e in all_edges:
-            if e.type not in _LOWRAM_STRUCT_TYPES and e.type != "PASSES":
-                lowram_disk.append(e)
-        _log.info(
-            "[graph_ingest][repo=%s] lowram: %s structural edge(s) kept in RAM, %s bulk edge(s) spilled to %s",
-            repo, len(_struct_edges), len(lowram_disk), spill_dir,
-        )
-        all_edges = _struct_edges  # resolve reads structural for parent_of; bulk is on disk
-
-        def resolve_sink(new_nodes: list[Node], batch: list[Edge]) -> list:
-            # extra_nodes are returned by resolve() in full and added below, so
-            # new_nodes here can be ignored; retain nothing (return []) so resolve
-            # holds no edges — they live only on disk.
-            lowram_disk.extend(batch)
-            return []
+            # Retain almost nothing (item #2b). A deferred edge is held in FULL
+            # because it hasn't been written yet and a later stage rewrites it
+            # (CALLS under SCIP). A structural edge is retained SLIM because the
+            # derive passes re-read it. Everything else — the bulk — is durable
+            # in Neo4j as of the enqueue above and is simply dropped.
+            keep: list = []
+            for e in batch:
+                if e.type in defer_edge_types:
+                    keep.append(e)
+                elif e.type in _RETAINED_EDGE_TYPES:
+                    keep.append(e.to_slim())
+            return keep
 
     _beat("resolving", "building lookup indices")
     resolve_workers = get_resolve_workers()
@@ -720,7 +724,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             writer_thread.join()
     if stream_writer and writer_failure:
         raise writer_failure[0]
-    del resolve_nodes  # slim projection is dead after resolve; free it promptly
+    del resolve_nodes  # just an alias for all_nodes now; drop the extra name
     all_nodes.extend(extra_nodes)
     if stream_nodes:
         late_nodes.extend(extra_nodes)  # created after the pre-resolve write
@@ -732,15 +736,10 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # reclaimed before those whole-graph passes instead of after them.
     all_refs = []
     _mark("resolving")
-    _log.info("[graph_ingest][repo=%s] resolving: %s nodes, %s edges after resolve", repo, len(all_nodes), len(all_edges))
-
-    # Option A: low-RAM derive+write takes over here (bulk edges are on disk;
-    # all_edges holds only structural). Skips SCIP + the in-RAM tail entirely.
-    if lowram:
-        return _lowram_derive_and_write(
-            store, all_nodes, all_edges, lowram_disk, root, repo, coverage,
-            wipe, total_files, t0, stage_seconds, on_stage, _beat, _mark, _write_beat,
-        )
+    _log.info(
+        "[graph_ingest][repo=%s] resolving: %s nodes, %s edges after resolve "
+        "(%s retained in RAM)", repo, len(all_nodes), edge_stats.total, len(all_edges),
+    )
 
     # Stage 2 (precise): let SCIP own Python CALLS — type-precise and cross-file.
     # The heuristic keeps non-Python CALLS (e.g. Java, where scip-java needs a
@@ -792,48 +791,50 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             coverage.pop("CALLS", None)  # superseded by SCIP for Java (and/or Python above)
     _mark("scip_java")
 
+    # SCIP is the one stage that REPLACES edges already counted (it drops a
+    # whole language's heuristic CALLS and substitutes its own), so the running
+    # tallies can't be adjusted incrementally here — recount from the surviving
+    # list instead. Only reachable when SCIP actually ran and produced edges;
+    # on the default path (scip off) this never executes and the incremental
+    # counts stand.
+    if scip_owns_python or scip_owns_java:
+        known_node_ids.update(n.id for n in all_nodes)
+        edge_stats.reset()
+        edge_stats.add(all_edges, known_node_ids)
+
     if on_stage:
         on_stage("deriving", {})
 
-    # DFG: compute function-summary data-flow graph and PASSES edges.
-    # Must run after SCIP so CALLS edges are as precise as possible (needed for
-    # binding ArgFlows to callee nodes). Replaces extractor-emitted PASSES edges
-    # so the parallel-array flow properties are always present.
-    _beat("deriving", "dataflow: computing function summaries + PASSES edges")
-    dfg_result = run_dataflow(root, all_nodes, all_edges, repo)
-    all_edges = [e for e in all_edges if e.type != "PASSES"]
-    all_edges.extend(dfg_result.passes_edges)
-    nodes_by_id = {n.id: n for n in all_nodes}
-    for fn_id, props in dfg_result.node_props.items():
-        fn_node = nodes_by_id.get(fn_id)
-        if fn_node is not None:
-            fn_node.dfg_json = props.get("dfg_json", "")
-            fn_node.dfg_returns_from_params = props.get("dfg_returns_from_params", [])
-            fn_node.dfg_hash = props.get("dfg_hash", "")
-    # node_props/passes_edges are now fully applied to all_nodes/all_edges —
-    # only .stats is ever read from the result (see IndexResult.dfg below), so
-    # drop the rest here instead of holding it (one dfg_json string per
-    # function, duplicated) through derive + write.
-    dfg_stats = dfg_result.stats
-    del dfg_result
+    # The DFG pass ran here: a SECOND full tree-sitter parse of every file with a
+    # Function node, producing a per-function data-flow summary serialized onto
+    # the node as dfg_json. Removed — see MEMORY_ARCHITECTURE_PLAN.md item #10.
+    # Its one consumer was the analyzer's Agent B taint composition
+    # (find_taint_findings), which is being retired in favour of Agent C reading
+    # the source of each candidate path directly. dfg_json was a precomputed,
+    # heuristic approximation of exactly what an LLM re-derives from the source
+    # more accurately (it explicitly gave up on */** splats, among others), so
+    # once the LLM reads the path anyway it is duplicated work.
+    #
+    # Cost removed: the second whole-repo parse (which dominated this stage), and
+    # ~1.8KB of JSON per Function held on the node objects from here through to
+    # the final write.
 
     # A+B rewrite Steps 1+2+11 (§11): persist whatever is still held as full
-    # Edge objects — the deferred types (PASSES from dataflow just above;
-    # CALLS incl. SCIP replacements when scip was on) — HERE, after SCIP
-    # (CALLS final) and dataflow (PASSES final), so no edge that a later stage
-    # supersedes is ever written stale. Everything else was already flushed
-    # eagerly (structural edges pre-resolve; resolved edges via the resolve
-    # sink) and sits in all_edges as SlimEdge stand-ins. After this write the
-    # entire pre-derive edge set is durable in Neo4j and all_edges is 100%
-    # slim.
+    # Edge objects — the deferred type (CALLS incl. SCIP replacements, only when
+    # scip was on) — HERE, after SCIP has made CALLS final, so no edge that a
+    # later stage supersedes is ever written stale. Everything else was already
+    # flushed eagerly (structural edges pre-resolve; resolved edges via the
+    # resolve sink) and sits in all_edges as SlimEdge stand-ins. After this write
+    # the entire pre-derive edge set is durable in Neo4j and all_edges is 100%
+    # slim. With scip off nothing is deferred and this write is a no-op.
     #
     # Why derive reads slim IN-RAM edges and NOT Neo4j (tried and reverted):
     # MERGE dedups relationships, so a Cypher rewrite of any pass that depends
     # on edge *multiplicity* (duplicate call sites — this used to matter for
     # fan_in/fan_out, since removed — see MEMORY_ARCHITECTURE_PLAN.md item #8)
     # would silently diverge; and _synthesize_polymorphic_calls needs
-    # evidence_file/evidence_line while dataflow needs confidence off
-    # *existing* edges — none of which are in the golden edge-set hash (§7),
+    # evidence_file/evidence_line off *existing* edges — which are not in the
+    # golden edge-set hash (§7),
     # so a Cypher rewrite could regress them without the oracle even
     # noticing. The slim list preserves the full read-set (SLIM_EDGE_FIELDS)
     # exactly.
@@ -855,6 +856,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         )
 
     def _add_edges(new: list[Edge]) -> None:
+        edge_stats.add(new, known_node_ids)
         all_edges.extend(new)
         if new_edges is not None:
             new_edges.extend(new)
@@ -886,6 +888,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     _beat("deriving", "package tree")
     pkg_nodes, pkg_edges = _build_package_tree(all_nodes, repo)
     all_nodes.extend(pkg_nodes)
+    known_node_ids.update(n.id for n in pkg_nodes)
     if stream_nodes:
         late_nodes.extend(pkg_nodes)
     _add_edges(pkg_edges)
@@ -895,13 +898,8 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         if e.type == "CONTAINS":
             shared_parent_of[e.dst] = e.src
 
-    # Synthesize polymorphic-dispatch CALLS edges (reads the OVERRIDES edges
-    # just derived above) before every downstream CALLS-based caller query.
-    # Reads evidence_file/evidence_line off existing CALLS edges — carried by
-    # the slim projection (SLIM_EDGE_FIELDS) even though it's outside the
-    # golden edge-set hash.
-    _beat("deriving", "polymorphic dispatch CALLS")
-    _add_edges(_synthesize_polymorphic_calls(all_edges))
+    # Polymorphic-dispatch CALLS are no longer synthesized here — they are built
+    # server-side after the final write (see _run_polymorphic_cypher).
 
     # SQL linkage: emit READS/WRITES edges from Function nodes to Table nodes
     # by scanning function source for embedded SQL patterns.  Runs last so
@@ -910,94 +908,32 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     sql_link_edges = _derive_sql_links(all_nodes, root)
     _add_edges(sql_link_edges)
 
-    _beat("deriving", "validating graph")
-    validation = validate_graph(all_nodes, all_edges)
     _mark("deriving")
-    _log.info("[graph_ingest][repo=%s] deriving: %s nodes, %s edges before write", repo, len(all_nodes), len(all_edges))
+    _log.info("[graph_ingest][repo=%s] deriving: %s nodes, %s edges before write", repo, len(all_nodes), edge_stats.total)
 
-    # --- JOBLIB DUMP possibility (DISABLED — kept for re-enabling) ---------
-    # Dumps the fully resolved+derived graph to a sharded pickle and SKIPS the
-    # Neo4j write, so it can be loaded separately via load_graph_to_neo4j.py
-    # (retune batch size / workers / target Aura without redoing resolve).
-    # To re-enable: change `if False:` below back to `if dump_path:`, and
-    # re-enable --dump-graph in cli.py + the dump field in ui/app.py.
-    dump_path = get_dump_graph_path()
-    if False:  # was: if dump_path:
-        if stream_nodes or stream_writer:
-            raise RuntimeError(
-                "GRAPH_DUMP_GRAPH_PATH is set but streaming ingest/writer is enabled. "
-                "Dump mode needs the full graph in memory (streaming drops node text "
-                "and writes edges to Neo4j during resolve, leaving no single final graph "
-                "to dump). Re-run with streaming ingest AND streaming writer OFF."
-            )
-        import pickle
-        parent = os.path.dirname(os.path.abspath(dump_path))
-        os.makedirs(parent, exist_ok=True)
-        # Streamed, sharded dump: header + nodes + N edge shards, each a separate
-        # pickle frame in one file. The loader reads it frame-by-frame so it never
-        # holds all edges in RAM at once (essential at 100M+ edges). Nodes are far
-        # fewer, written as a single frame.
-        shard = get_dump_shard_size()
-        n_edges = len(all_edges)
-        n_shards = (n_edges + shard - 1) // shard if n_edges else 0
-        _beat(
-            "writing_graph",
-            f"dumping {len(all_nodes)} node(s) + {n_edges} edge(s) to {dump_path} "
-            f"in {n_shards} shard(s) of {shard}",
-        )
-        with open(dump_path, "wb") as fh:
-            pickle.dump(
-                {
-                    "format": "sharded-v1",
-                    "repo": repo,
-                    "n_nodes": len(all_nodes),
-                    "n_edges": n_edges,
-                    "shard_size": shard,
-                    "n_shards": n_shards,
-                },
-                fh, protocol=pickle.HIGHEST_PROTOCOL,
-            )
-            pickle.dump(all_nodes, fh, protocol=pickle.HIGHEST_PROTOCOL)
-            for i in range(0, n_edges, shard):
-                pickle.dump(all_edges[i:i + shard], fh, protocol=pickle.HIGHEST_PROTOCOL)
-                _beat("writing_graph", f"dumped edge shard, {min(i + shard, n_edges)}/{n_edges}")
-        _mark("writing_graph")
-        _log.info(
-            "[graph_ingest][repo=%s] dumped resolved graph to %s (%s node(s), %s edge(s), "
-            "%s shard(s); skipped Neo4j write)",
-            repo, dump_path, len(all_nodes), n_edges, n_shards,
-        )
-        if manifest is not None:
-            clear_checkpoint(ckpt_root, repo)
-        return IndexResult(
-            repo=repo,
-            files=total_files,
-            nodes=len(all_nodes),
-            edges=len(all_edges),
-            seconds=time.time() - t0,
-            coverage=dict(coverage),
-            validation=validation,
-            db_counts=(0, 0),
-            scip=scip_report,
-            scip_java=scip_java_report,
-            roles={},
-            dfg=DataflowResult(stats=dfg_stats),
-            stage_seconds=stage_seconds,
-        )
+    # A joblib/pickle dump-the-whole-graph escape hatch lived here behind an
+    # `if False:` (it dumped the resolved graph to sharded pickles and skipped
+    # the Neo4j write, for reloading via load_graph_to_neo4j.py). It had been
+    # dead for a while and could not be re-enabled as written: it required the
+    # whole graph in memory, which the now-unconditional streaming node/edge
+    # write makes impossible — its own guard raised on `stream_nodes or
+    # stream_writer`, and both are hardcoded True. Removed along with
+    # GRAPH_DUMP_GRAPH_PATH / GRAPH_DUMP_SHARD_SIZE.
 
     if on_stage:
-        on_stage("writing_graph", {"nodes": len(all_nodes), "edges": len(all_edges)})
+        on_stage("writing_graph", {"nodes": len(all_nodes), "edges": edge_stats.total})
     # Extracted nodes were written (and their bulky fields dropped) before
     # resolve, and wipe/delete already ran then. Write only the nodes created
-    # since (resolve's synthesized nodes + package/module), then patch the
-    # derived properties (roles, call metrics, module ownership, DFG) onto the
-    # already-written nodes. Net Neo4j state is identical to a full
-    # write_nodes(all_nodes), but the full node objects were never held for a
-    # second dict conversion here.
+    # since (resolve's synthesized nodes + package/module). Net Neo4j state is
+    # identical to a full write_nodes(all_nodes), but the full node objects were
+    # never held for a second dict conversion here.
+    #
+    # A write_semantics() call followed, patching derived properties onto the
+    # already-written nodes. With the DFG pass gone (item #10) no derive step
+    # sets a node property any more — roles, call metrics and module ownership
+    # were removed by items #3 and #8 — so there is nothing left to patch.
     _beat("writing_graph", f"writing {len(late_nodes)} late node(s)")
     store.write_nodes(late_nodes, on_batch=_write_beat("writing_graph", "late nodes written"))
-    _beat("writing_graph", "patching derived node properties")
-    store.write_semantics(_derived_semantics_rows(all_nodes))
     # all_edges is a mix of SlimEdge (pre-derive, already durable in Neo4j
     # from Step 1) and Edge (derive-added) by this point — only new_edges
     # (the latter) are real Edge objects with .props(), and only they are new
@@ -1011,8 +947,11 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         "(pre-derive edges already durable in Neo4j from Step 1)",
         repo, len(new_edges),
     )
+    n_poly = _run_polymorphic_cypher(store, repo, edge_stats, _beat)
+    _beat("writing_graph", "validating graph")
+    validation = validate_graph(all_nodes, edge_stats)
     _mark("writing_graph")
-    _log.info("[graph_ingest][repo=%s] writing_graph: wrote %s nodes, %s edges to Neo4j", repo, len(all_nodes), len(all_edges))
+    _log.info("[graph_ingest][repo=%s] writing_graph: wrote %s nodes, %s edges to Neo4j", repo, len(all_nodes), edge_stats.total)
 
     if manifest is not None:
         # Run succeeded end-to-end (including the Neo4j write) — the
@@ -1024,138 +963,32 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         repo=repo,
         files=total_files,
         nodes=len(all_nodes),
-        edges=len(all_edges),
+        edges=edge_stats.total,
         seconds=time.time() - t0,
         coverage=dict(coverage),
         validation=validation,
         db_counts=store.counts(repo),
         scip=scip_report,
         scip_java=scip_java_report,
-        roles={},
-        dfg=DataflowResult(stats=dfg_stats),
         stage_seconds=stage_seconds,
     )
 
 
-def _lowram_derive_and_write(
-    store, all_nodes, struct_edges, disk, root, repo, coverage,
-    wipe, total_files, t0, stage_seconds, on_stage, _beat, _mark, _write_beat,
-):
-    """Option A tail: dataflow -> derive -> write, streaming the bulk edges from
-    ``disk`` (a DiskEdgeStore) instead of holding them in RAM.
+def _run_polymorphic_cypher(store, repo: str, edge_stats, _beat) -> int:
+    """Create the polymorphic-dispatch CALLS edges in the database, after every
+    CALLS and OVERRIDES is durable. Returns how many were created and folds that
+    into the running tallies so validate_graph still reports the whole graph.
 
-    RAM stays ~= nodes + structural edges + derived edges + O(nodes) accumulators.
-    Reuses the in-RAM derive functions unchanged over a streamed edge view
-    (ChainedEdges); only polymorphic-dispatch needs the streamed variant (the
-    in-RAM one builds an all-CALLS set). Structural edges (CONTAINS/EXTENDS/…)
-    and derived edges (USES/BELONGS_TO/synthetic CALLS/READS/WRITES) are moderate
-    and kept in RAM; only CALLS + PASSES live on disk.
-    """
-    from .lowram_derive import ChainedEdges, streaming_polymorphic_calls
-
-    if on_stage:
-        on_stage("deriving", {})
-
-    # Dataflow — streams edges (disk holds no PASSES; dataflow regenerates them).
-    _beat("deriving", "dataflow: function summaries + PASSES edges")
-    dfg_result = run_dataflow(root, all_nodes, ChainedEdges(struct_edges, disk), repo)
-    disk.extend(dfg_result.passes_edges)
-    nodes_by_id = {n.id: n for n in all_nodes}
-    for fn_id, props in dfg_result.node_props.items():
-        fn_node = nodes_by_id.get(fn_id)
-        if fn_node is not None:
-            fn_node.dfg_json = props.get("dfg_json", "")
-            fn_node.dfg_returns_from_params = props.get("dfg_returns_from_params", [])
-            fn_node.dfg_hash = props.get("dfg_hash", "")
-    dfg_stats = dfg_result.stats
-    del dfg_result
-
-    derived: list[Edge] = []
-
-    # Overrides — needs CONTAINS/EXTENDS/IMPLEMENTS (all structural, in RAM).
-    # OVERRIDES feed module-USES (base_dep_types) and polymorphic, so they go
-    # back into the structural RAM list.
-    _beat("deriving", "overrides from class hierarchy")
-    struct_edges.extend(_derive_overrides(all_nodes, struct_edges))
-
-    _beat("deriving", "package tree")
-    pkg_nodes, pkg_edges = _build_package_tree(all_nodes, repo)
-    all_nodes.extend(pkg_nodes)
-    struct_edges.extend(pkg_edges)  # package CONTAINS
-
-    _beat("deriving", "polymorphic dispatch CALLS")
-    derived.extend(streaming_polymorphic_calls(struct_edges, disk))
-
-    _beat("deriving", "SQL table links")
-    derived.extend(_derive_sql_links(all_nodes, root))
-
-    _beat("deriving", "validating graph")
-    validation = validate_graph(all_nodes, ChainedEdges(struct_edges, disk, derived))
-    _mark("deriving")
-
-    total_edges = len(struct_edges) + len(derived) + len(disk)
-    if on_stage:
-        on_stage("writing_graph", {"nodes": len(all_nodes), "edges": total_edges})
-    store.bootstrap()
-    if wipe:
-        store.wipe(repo)
-    _beat("writing_graph", f"writing {len(all_nodes)} node(s)")
-    store.write_nodes(all_nodes, on_batch=_write_beat("writing_graph", "nodes written"))
-    _beat("writing_graph", f"writing {len(struct_edges)} structural edge(s)")
-    store.write_edges(struct_edges, on_batch=_write_beat("writing_graph", "structural edges written"))
-    _beat("writing_graph", f"writing {len(derived)} derived edge(s)")
-    store.write_edges(derived, on_batch=_write_beat("writing_graph", "derived edges written"))
-    # Bulk edges: write one shard at a time so they never all sit in RAM again.
-    _beat("writing_graph", f"writing {len(disk)} bulk edge(s) from disk, shard by shard")
-    n_bulk = 0
-    for shard in disk.shards():
-        store.write_edges(shard)
-        n_bulk += len(shard)
-        _beat("writing_graph", f"bulk edges written {n_bulk}/{len(disk)}")
-    _mark("writing_graph")
-    _log.info("[graph_ingest][repo=%s] lowram writing_graph: wrote %s nodes, %s edges to Neo4j", repo, len(all_nodes), total_edges)
-
-    import shutil as _shutil
-    _shutil.rmtree(disk._dir, ignore_errors=True)  # spill served its purpose
-
-    return IndexResult(
-        repo=repo,
-        files=total_files,
-        nodes=len(all_nodes),
-        edges=total_edges,
-        seconds=time.time() - t0,
-        coverage=dict(coverage),
-        validation=validation,
-        db_counts=store.counts(repo),
-        scip=ScipReport(),
-        scip_java=ScipReport(),
-        roles={},
-        dfg=DataflowResult(stats=dfg_stats),
-        stage_seconds=stage_seconds,
+    Runs here rather than in derive because it needs the written graph; that is
+    also what lets it replace a Python pass over the full edge set."""
+    _beat("writing_graph", "polymorphic dispatch CALLS (in-database)")
+    n = synthesize_polymorphic_calls_cypher(store, repo)
+    edge_stats.add_count("CALLS", n)
+    _log.info(
+        "[graph_ingest][repo=%s] polymorphic dispatch: %s synthetic CALLS edge(s) created in-database",
+        repo, n,
     )
-
-
-def _derived_semantics_rows(nodes: list[Node]) -> list[dict]:
-    """Build write_semantics rows carrying only the fields the derive/dataflow
-    passes SET on nodes (DFG). component_role/module_id are no longer derived
-    — see MEMORY_ARCHITECTURE_PLAN.md item #3; fan_in/fan_out/recursive are no
-    longer derived either — see item #8 (confirmed zero downstream consumers).
-
-    Under streaming ingest the extracted nodes are written to Neo4j before those
-    passes run, so their derived properties are patched on afterwards. Uses the
-    same ``_clean`` as ``Node.props()`` (drops empty/zero/false values) so the
-    patched Neo4j state matches exactly what a single full ``write_nodes`` would
-    have written — nodes with no derived properties contribute no row."""
-    rows: list[dict] = []
-    for n in nodes:
-        props = _clean({
-            "dfg_json": n.dfg_json,
-            "dfg_returns_from_params": n.dfg_returns_from_params,
-            "dfg_hash": n.dfg_hash,
-        })
-        if props:
-            rows.append({"id": n.id, "props": props})
-    return rows
+    return n
 
 
 def _derive_overrides(
@@ -1268,80 +1101,6 @@ def _build_package_tree(nodes: list[Node], repo: str) -> tuple[list[Node], list[
         add_contains(parent_id, n.id)
 
     return new_nodes, new_edges
-
-
-# Cap on existing callers of an ancestor method fanned out to each concrete
-# override, so a popular interface (many implementors x many callers) can't
-# mint an unbounded number of synthetic edges.
-_POLY_FANOUT_GUARD = 25
-
-
-def _synthesize_polymorphic_calls(edges: list[Edge]) -> list[Edge]:
-    """Make callers of an ancestor method visible as callers of every concrete
-    override (OVERRIDES edges, from `_derive_overrides` or SCIP), so every
-    CALLS-based caller query (`_batch_callers`/`_batch_hop2_summaries` in
-    analyzer/agents.py, the caller lookups in analyzer/taint.py and
-    analyzer/exception_walk.py) finds real callers that reach a concrete
-    override only through a supertype- or interface-typed reference — e.g.
-    `Animal a = new Dog(); a.speak();` should surface as a caller of
-    `Dog.speak()`, not just of `Animal.speak()`.
-
-    One-directional only: child -> ancestor -> ancestor's existing callers.
-    Does not propagate sibling-to-sibling (e.g. attributing `Cat.speak()`'s
-    callers to `Dog.speak()` because both implement `Animal`) — that would be
-    a new, broader false-positive source, not the gap being closed here.
-
-    Tagged `Confidence.AMBIGUOUS` / `strategy="polymorphic_dispatch"` —
-    genuinely multiple/uncertain resolution (the call could reach any
-    override at runtime depending on the concrete object type). No CALLS-
-    based query in `analyzer/` filters on edge confidence, so this flows
-    through every existing and future caller-query unfiltered.
-    """
-    overrides_by_ancestor: dict[str, list[str]] = defaultdict(list)
-    for e in edges:
-        if e.type == "OVERRIDES":
-            overrides_by_ancestor[e.dst].append(e.src)
-    if not overrides_by_ancestor:
-        return []
-
-    # The dedup check below only ever probes (caller.src, child) where child
-    # is a concrete override — so only CALLS edges landing on a concrete
-    # override can ever match. Previously this built `existing_calls` from
-    # *every* CALLS edge in the graph (100M+ on a large repo) just to guard
-    # against duplicates on this much smaller set of pairs. Narrowing it to
-    # calls-into-children only (bounded by calls-into-overrides, not total
-    # calls) and building it in the same pass as callers_by_ancestor — instead
-    # of two separate full scans — mirrors streaming_polymorphic_calls in
-    # lowram_derive.py (unit-tested byte-identical output; see test there).
-    children_set = {c for children in overrides_by_ancestor.values() for c in children}
-    callers_by_ancestor: dict[str, list[Edge]] = defaultdict(list)
-    existing_into_children: set[tuple[str, str]] = set()
-    for e in edges:
-        if e.type != "CALLS":
-            continue
-        if e.dst in overrides_by_ancestor:
-            callers_by_ancestor[e.dst].append(e)
-        if e.dst in children_set:
-            existing_into_children.add((e.src, e.dst))
-
-    synthetic: list[Edge] = []
-    for ancestor, children in overrides_by_ancestor.items():
-        caller_edges = callers_by_ancestor.get(ancestor, [])[:_POLY_FANOUT_GUARD]
-        if not caller_edges:
-            continue
-        for child in children:
-            for ce in caller_edges:
-                if (ce.src, child) in existing_into_children:
-                    continue
-                existing_into_children.add((ce.src, child))
-                synthetic.append(Edge(
-                    "CALLS", ce.src, child,
-                    confidence=Confidence.AMBIGUOUS.value,
-                    origin=Origin.DERIVED.value,
-                    extractor="heuristic", strategy="polymorphic_dispatch",
-                    evidence_file=ce.evidence_file, evidence_line=ce.evidence_line,
-                ))
-    return synthetic
 
 
 # SQL patterns that indicate a function reads from or writes to a table.

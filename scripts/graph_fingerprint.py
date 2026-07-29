@@ -107,18 +107,26 @@ def fingerprint(cfg: Neo4jConfig, repo: str, coverage: dict | None,
                     r["t"], r["src"], r["dst"], r["strat"], r["conf"])) % _MOD
                 edge_total += 1
 
-            # Derived-property hash — the fields the derive passes write back
-            # (role classification, call metrics, module ownership, dfg hash).
+            # Node-property hash. This used to hash the DERIVED properties
+            # (component_role, fan_in, fan_out, module_id, dfg_hash) — every one
+            # of which has since been removed from the pipeline (items #3, #8,
+            # #10), leaving a hash that was a pure function of the node ids and
+            # so proved nothing. Repointed at the properties the extractors
+            # actually still write, which is what a node-level regression would
+            # show up in. Divergence against a golden captured before this change
+            # is expected; rebaseline once.
             derived_hash = 0
             node_total = 0
             for r in s.run(
                 f"MATCH (n:{_SHARED_LABEL} {{repo:$repo}}) "
-                f"RETURN n.id AS id, n.component_role AS role, n.fan_in AS fi, "
-                f"n.fan_out AS fo, n.module_id AS mid, n.dfg_hash AS dh",
+                f"RETURN n.id AS id, n.kind AS kind, n.lang AS lang, "
+                f"n.file AS file, n.start_line AS sl, n.end_line AS el, "
+                f"n.signature AS sig, n.visibility AS vis",
                 repo=repo,
             ):
                 derived_hash = (derived_hash + _row_digest(
-                    r["id"], r["role"], r["fi"], r["fo"], r["mid"], r["dh"])) % _MOD
+                    r["id"], r["kind"], r["lang"], r["file"],
+                    r["sl"], r["el"], r["sig"], r["vis"])) % _MOD
                 node_total += 1
     finally:
         driver.close()

@@ -13,8 +13,8 @@ Emits:
     RawRefs (name-only, resolved later): IMPORTS, CALLS, EXTENDS, IMPLEMENTS,
            RETURNS/HAS_TYPE/OF_TYPE (TS types).
 
-No DFG/taint yet for JS/TS — run_dataflow only summarizes python/java, so JS
-functions get the structural graph (calls, imports, types) but no dfg_json.
+No index-time DFG/taint summaries exist for any language any more, so JS
+functions get the structural graph (calls, imports, types).
 That is the intended first landing; JS taint is a separate step.
 """
 from __future__ import annotations

@@ -31,22 +31,14 @@ only slim stand-ins in RAM — this used to be gated behind `GRAPH_STREAMING_WRI
 (now removed) and disk-spill checkpointing for no structural reason; it's the
 default, always-on behavior now (`MEMORY_ARCHITECTURE_PLAN.md` items #1/#2).
 
-## Low-RAM derive (Option A) — currently non-functional, deferred
+## Low-RAM derive (Option A) — REMOVED
 
-| Env var | Default | Effect |
-|---|---|---|
-| `GRAPH_LOWRAM_DERIVE` | `false` | **Spills the 100M+ bulk edges to disk** during resolve and streams them through derive, so they never sit in RAM. Trades **speed (extra disk I/O) for much lower RAM**. Requires SCIP **off** (guarded). |
-| `GRAPH_EDGE_SPILL_DIR` | `.graph_edge_spill` | Where the on-disk edge shards go. **Put on fast local SSD/NVMe** with ~10 GB free for a 130M-edge graph. |
-
-⚠️ **`GRAPH_LOWRAM_DERIVE=true` currently always raises `RuntimeError` immediately
-instead of running.** Its guard (`pipeline.py`) was written when streaming-writer
-was optional and mutually exclusive with it; now that node/edge early-write is
-unconditional, the guard's condition is always true, making this path
-permanently unreachable as written. Left unfixed deliberately — items #1/#2/#3/#6
-of `MEMORY_ARCHITECTURE_PLAN.md` already remove most of what this path existed
-to work around (derive no longer holds much in the way of edges regardless).
-Fixing the guard (item #5) is deferred until a real-corpus RAM measurement on
-top of those items shows it's still needed. Don't enable this until then.
+`GRAPH_LOWRAM_DERIVE` and `GRAPH_EDGE_SPILL_DIR` no longer exist. The flag
+spilled the bulk edges to disk so the derive passes could stream them back;
+once nothing read the bulk any more the spill became write-only. The default
+path now retains only structural edges (bounded by declarations, not call
+sites), which is what the flag existed to achieve — without the disk I/O.
+See `MEMORY_ARCHITECTURE_PLAN.md` items #2b and #16.
 
 ## Concurrency
 
@@ -62,7 +54,7 @@ top of those items shows it's still needed. Don't enable this until then.
 
 | Env var | Default | Notes |
 |---|---|---|
-| `GRAPH_SCIP_ENABLED` | `false` | Precise SCIP resolution. Off = heuristic resolver (fast). Incompatible with low-RAM derive. |
+| `GRAPH_SCIP_ENABLED` | `false` | Precise SCIP resolution. Off = heuristic resolver (fast). When on, CALLS edges are deferred (held in RAM until SCIP has replaced them). |
 | `GRAPH_EXTRACT_CACHE_ENABLED` | `true` | Content-hash extraction cache; **keep on** — makes re-runs far cheaper. |
 | `GRAPH_EXTRACT_CACHE_DIR` | `.cache/graph_extract_cache` | |
 
@@ -110,8 +102,10 @@ same-named `.py` file when both exist, so "on/off" means "was
 
 Node/edge early-write + slimming (the biggest lever — nodes/edges no longer
 accumulate in full form for the whole repo) is now **always on**, so it's not
-part of this config anymore. `GRAPH_LOWRAM_DERIVE` is currently non-functional
-(see above) — don't set it. The remaining levers all target extraction/resolve:
+part of this config anymore, and neither is edge retention: the bulk is dropped
+after its write rather than held (item #2b). The remaining levers all target
+extraction and resolve, where the ref list and the resolver's lookup indices are
+now the largest things in memory:
 
 ```dotenv
 GRAPH_CHECKPOINT_ROOT=/data/graph_checkpoints  # enables disk-spill checkpointing

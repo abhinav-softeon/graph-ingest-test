@@ -193,19 +193,47 @@ def resolve(
                 hits.append(ep)
         return hits
 
-    methods_of_class: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
-    fields_of_class: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
-    fields_of_file: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
+    # (owner_id, member_name) -> Node, or list[Node] when that name is genuinely
+    # overloaded/duplicated within the owner. Flat tuple key + scalar value,
+    # measured at ~40 B/entry against ~311 B for the dict-of-dicts-of-lists these
+    # replace: at one method per (class, name) — overwhelmingly the common case —
+    # the old shape paid for an inner dict AND a one-element list per member.
+    # Values stay ordered exactly as the node iteration produced them, so the
+    # candidate lists handed to _apply_arity are unchanged.
+    #
+    # Also fixes an incidental leak: these were defaultdicts read as
+    # `methods_of_class[cls_id]`, which MINTED an empty inner dict for every
+    # class-id probed and missed. Plain dict + .get() cannot.
+    methods_of_class: dict[tuple[str, str], object] = {}
+    fields_of_class: dict[tuple[str, str], object] = {}
+    fields_of_file: dict[tuple[str, str], object] = {}
+
+    def _index_member(idx: dict, key: tuple[str, str], node: Node) -> None:
+        cur = idx.get(key)
+        if cur is None:
+            idx[key] = node
+        elif isinstance(cur, list):
+            cur.append(node)
+        else:
+            idx[key] = [cur, node]
+
     for n in nodes:
         if n.label == "Field" and n.scope == "module" and n.file:
-            fields_of_file[n.file][n.name].append(n)
+            _index_member(fields_of_file, (n.file, n.name), n)
         p = parent_of.get(n.id)
         if not (p and nodes_by_id.get(p) and nodes_by_id[p].label == "Class"):
             continue
         if n.label == "Function" and n.kind == "method":
-            methods_of_class[p][n.name].append(n)
+            _index_member(methods_of_class, (p, n.name), n)
         elif n.label == "Field":
-            fields_of_class[p][n.name].append(n)
+            _index_member(fields_of_class, (p, n.name), n)
+
+    def _members(idx: dict, key: tuple[str, str]) -> list[Node]:
+        """Candidates for (owner, name) as a list, whatever shape is stored."""
+        cur = idx.get(key)
+        if cur is None:
+            return []
+        return cur if isinstance(cur, list) else [cur]
 
     def enclosing_class_id(node_id: str) -> str | None:
         cur = parent_of.get(node_id)
@@ -314,7 +342,7 @@ def resolve(
             narrowed = _narrow_classes_for_recv(classes_by_name[ref.recv_type], src_file)
             hits: list[Node] = []
             for ccls in narrowed:
-                hits.extend(methods_of_class[ccls.id].get(name, []))
+                hits.extend(_members(methods_of_class, (ccls.id, name)))
             if hits:
                 return _apply_arity(ref, hits, "receiver_type_hint")
 
@@ -322,7 +350,7 @@ def resolve(
         if ref.recv in ("self", "cls"):
             cid = enclosing_class_id(ref.src)
             if cid is not None:
-                m = methods_of_class[cid].get(name)
+                m = _members(methods_of_class, (cid, name))
                 if m:
                     return _apply_arity(ref, m, "receiver_type")
 
@@ -332,7 +360,7 @@ def resolve(
             narrowed = _narrow_classes_for_recv(classes_by_name[ref.recv], src_file)
             hits: list[Node] = []
             for ccls in narrowed:
-                hits.extend(methods_of_class[ccls.id].get(name, []))
+                hits.extend(_members(methods_of_class, (ccls.id, name)))
             if hits:
                 return _apply_arity(ref, hits, "receiver_type")
 
@@ -342,7 +370,7 @@ def resolve(
     def narrow_type(ref: RawRef) -> tuple[list[Node], str]:
         """Best candidate set for a type-shaped ref (EXTENDS/IMPLEMENTS/
         INSTANTIATES/AUTOWIRED) with the SAME package/import-awareness
-        `narrow_call` already gives CALLS/PASSES — previously these fell
+        `narrow_call` already gives CALLS — previously these fell
         straight to the generic global by-name lookup with zero scope
         narrowing at all, the single biggest precision gap for Java, where
         multiple classes sharing a simple name across different packages
@@ -420,10 +448,10 @@ def resolve(
         # already being durable in Neo4j) was implemented here and REVERTED —
         # it silently lost derived edges. Resuming skips already-resolved refs,
         # so their edges exist only in Neo4j, not in the in-RAM edge list that
-        # dataflow and the derive passes (_derive_overrides,
+        # the derive passes (_derive_overrides,
         # _synthesize_polymorphic_calls — both need real Edge objects, not
         # MERGE-collapsed Neo4j relationships, e.g. for evidence_file/
-        # evidence_line) consume; a resumed run produced fewer PASSES edges
+        # evidence_line) consume; a resumed run produced fewer derived edges
         # than an uninterrupted one. A sound resume must spill the slim edges
         # to disk as resolve produces them and reload them before derive.
         # Until then, resolve restarts from ref 0 — extraction resume is
@@ -465,9 +493,6 @@ def resolve(
             evidence_file=ref.ref_file, evidence_line=ref.ref_line,
             evidence_col=ref.ref_col,
             strategy=strategy,
-            # `or None` so an empty arg-name list doesn't allocate a list object
-            # per resolved edge (see Edge's field defaults / Phase 4).
-            arg_names=ref.arg_names or None,
         )
 
     def emit(ref: RawRef, cov: Coverage, wanted: list[Node], confidence: str,
@@ -584,14 +609,16 @@ def resolve(
                 cov.resolved += 1
             return
 
-        if ref.type in ("CALLS", "PASSES"):
+        # ("CALLS", "PASSES") until PASSES was removed — no extractor ever emitted
+        # a PASSES ref (verified), so that arm was unreachable.
+        if ref.type == "CALLS":
             wanted, strategy = narrow_call(ref)
             # Precision guard: a call on an *unknown* receiver that matched only by
             # global name (no scope/file/import/receiver-type evidence) is not a
             # trustworthy CALLS — it likely targets an external object that merely
             # shares a method name. Demote it to a weak REFERENCES symbol-use edge
-            # instead of asserting a precise call. Bare calls (no receiver) and the
-            # PASSES shadow are left untouched.
+            # instead of asserting a precise call. Bare calls (no receiver) are
+            # left untouched.
             if (
                 ref.type == "CALLS"
                 and wanted
@@ -626,7 +653,7 @@ def resolve(
             )
             if not wanted:
                 # Fallback: keep recall via a weaker symbol-use edge when a
-                # call target can't be resolved as a CALLS/PASSES destination.
+                # call target can't be resolved as a CALLS destination.
                 fallback = _fallback_reference_candidates(ref.target_name, by_name)
                 if fallback:
                     rcov = coverage["REFERENCES"]
@@ -659,14 +686,14 @@ def resolve(
         if ref.type in ("READS", "WRITES"):
             # self.<field> resolved to the enclosing class's field — scope-exact.
             cid = enclosing_class_id(ref.src)
-            wanted = fields_of_class[cid].get(ref.target_name, []) if cid else []
+            wanted = _members(fields_of_class, (cid, ref.target_name)) if cid else []
             strategy = "same_scope"
             if not wanted:
                 # Not inside a class (or not a class field) — fall back to a
                 # module-level global owned by the same file.
                 src_node = nodes_by_id.get(ref.src)
                 if src_node is not None and src_node.file:
-                    wanted = fields_of_file.get(src_node.file, {}).get(ref.target_name, [])
+                    wanted = _members(fields_of_file, (src_node.file, ref.target_name))
                     strategy = "same_file_global"
             emit(
                 ref,

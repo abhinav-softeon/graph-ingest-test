@@ -65,15 +65,383 @@ blocker found in each: `validate_graph`'s full-edge-set dependency for 2b,
 `all_nodes` already being fully resident regardless for 4b). Not "not yet
 done" — actively concluded not worth doing while #4 is held.
 
-**Item #5 (`GRAPH_LOWRAM_DERIVE` guard fix) remains deferred**, per its
-original sequencing note (measure real RAM first). One added wrinkle: because
-item #2 made `stream_writer` unconditionally `True`, the *existing* guard
-(`if lowram: if stream_writer or is_streaming_ingest_enabled(): raise
-RuntimeError(...)`) now makes `GRAPH_LOWRAM_DERIVE` permanently unreachable —
-setting it raises immediately instead of running. This is called out in
-`CONFIGURATION.md` and the Streamlit UI's help text so it doesn't surprise
-anyone; fixing it is still gated on the same real-corpus measurement as
-before, now also needing a decision on item #4.
+**Item #17 (new): resolver nested indices flattened — DONE.** With the edge and
+node lists dealt with, the resolver's own lookup indices became the largest
+thing at the peak. Measured per entry: plain dict 31 B, `defaultdict(list)`
+119 B, `defaultdict(lambda: defaultdict(list))` **311 B**.
+
+The three nested ones — `methods_of_class`, `fields_of_class`, `fields_of_file`
+— went from `{owner: {name: [Node]}}` to a flat `{(owner, name): Node}`, with
+the value promoted to a list only when a name is genuinely duplicated within its
+owner. At one member per (owner, name), which is overwhelmingly the common case,
+the old shape paid for an inner dict AND a one-element list. ~311 B → ~40 B per
+member, so roughly 270 B saved per method/field node.
+
+Two secondary fixes fell out. The indices were `defaultdict`s read as
+`methods_of_class[cls_id]`, which **minted an empty inner dict for every
+class-id probed and missed** — a plain dict with `.get()` cannot. And the
+scattered `[owner].get(name, [])` reads are now a single `_members()` helper, so
+there is one place that knows the storage shape.
+
+Deliberately NOT touched: `by_name`/`classes_by_name`/`endpoints_by_key`
+(119 B/entry). Same single-element-list waste, but their read sites are spread
+through the matching logic, and this is the code where a mistake changes
+resolution rather than just memory.
+
+**Verified by resolution fingerprint, not just tests:** the full edge set
+(order-independent hash over type/src/dst/confidence/strategy), every edge key,
+every node id, and the per-reftype `Coverage` counts are **identical** before and
+after on both corpora.
+
+**Item #15 (new): `arg_names` removed — DONE.** Wanted for overload
+disambiguation; it cannot do that. Argument *names* at a call site say nothing
+about parameter *types*, and the job is already done: Java overloads are
+**already distinct nodes** (`java.py:277` puts the parameter signature in the
+id), and `_apply_arity` already narrows candidates on `call_arity` vs
+`param_count`. Python has no overloads at all.
+
+It was also never wired up: both extractors ran a per-call-site AST walk
+(`_pass_arg_names`/`_call_arg_names`) and then **never passed the result to
+`ref()`**, so `RawRef.arg_names` was always `[]` and every `Edge.arg_names` was
+`None`. Removing it deletes that walk from the hottest phase. Resolution
+fingerprint unchanged.
+
+The one thing it *could* have supported — matching Python keyword arguments
+against `param_names` to separate two same-name, same-arity functions — was
+considered and declined. It is a real but narrow precision gain and would have
+changed resolution output.
+
+**Item #16 (new): `GRAPH_LOWRAM_DERIVE` deleted — DONE.** Fixed earlier this
+same session (item #5), then obsoleted by items #12 and #2b: with nothing left
+that reads the bulk edges, its disk spill became **write-only** — `len()` and
+the `rmtree` that deleted it were the only remaining uses. It wrote 130M edges
+to disk and deleted them unread.
+
+Removed: `lowram_derive.py`, `_lowram_derive_and_write`, the admission checks,
+`get_lowram_derive`/`get_edge_spill_dir`, the Streamlit controls, the
+docker-compose and `.env.example` entries, and `test_lowram_derive.py` /
+`test_lowram_tail.py` / `test_lowram_equivalence.py`.
+
+Worth recording that the effort was not wasted: repairing the flag is what
+surfaced the structural-vs-bulk edge split (`_LOWRAM_STRUCT_TYPES`), and that
+split — renamed `_RETAINED_EDGE_TYPES` — is exactly the mechanism the default
+path now uses. The flag was the prototype for item #2b.
+
+Replaced by `test_pipeline_contract.py`, which keeps the invariants those tests
+happened to pin (OVERRIDES really being derived from the *resolved* hierarchy;
+the removed payload fields staying removed) and adds a direct guard that the
+sink does not start retaining the bulk again — a regression nothing else would
+notice, since the graph would still be correct, just gigabytes heavier.
+
+**Item #14 (new): `all_nodes` is a slim projection — DONE.** The node floor,
+which items #1–#13 never touched (they all attacked edges).
+
+The pre-resolve write used to be followed by a field-BLANKING loop: it zeroed
+the bulky values but kept the 40-slot `Node` shell alive to the end of the run.
+It now PROJECTS instead — `all_nodes[i] = all_nodes[i].to_slim()`, in place so
+each full object is freed as it goes rather than briefly holding both lists.
+
+The bigger half of the win is second-order. `resolve_nodes` used to be a
+**second** slim list built alongside the still-full `all_nodes`, so the longest
+phase of the run held 360 B + 160 B per node simultaneously. Because the slim
+record now carries the full post-resolve read set, `resolve_nodes = all_nodes`
+and that duplication is gone:
+
+```
+BEFORE  full Node + separate slim projection   360 + 160 + 2 ptr = 536 B/node
+AFTER   one slim record, reused by resolve           160 + 1 ptr = 168 B/node
+        -> 368 B/node saved at the resolve peak, 200 B/node after
+        -> at 5M nodes: 2.68 GB -> 0.84 GB
+```
+
+`SLIM_NODE_FIELDS` grew from 12 to 16. The four additions (`repo`,
+`start_line`, `start_col`, `end_line`) are not used for resolution — they were
+established by AST-scanning every post-resolve consumer for Load-context reads
+of a `Node` field: `_derive_sql_links` needs repo/start_line/end_line,
+`validate_graph` needs start_line/end_line, `scip_resolver` needs start_col.
+
+`all_nodes` is now a MIXED list — `SlimNode` for extracted nodes, full `Node`
+for the late ones (resolve's synthesized nodes, package nodes, SQL Table nodes),
+which must stay full because they have not been written yet and
+`store.write_nodes` needs `.props()`. Verified that no `.props()` call can reach
+a slim record: the only `write_nodes(all_nodes)` runs BEFORE the projection, and
+every other call takes `late_nodes` or the sink's `extra_nodes`.
+
+**The guardrail is what makes this safe.** `test_slim_node.py` previously
+AST-scanned only `resolver.py`; it now also scans `_derive_overrides`,
+`_build_package_tree`, `_derive_sql_links`, `_lowram_derive_and_write`,
+`validator.py` and `scip_resolver.py` for any Load of a `Node` field outside the
+contract. Without it, a field read that no test corpus happens to exercise would
+be an AttributeError waiting in production rather than a failing test.
+`index_repo` itself is deliberately excluded: it legitimately reads full `Node`
+fields *before* the projection and on `late_nodes`.
+
+**Item #2b: drop the in-RAM edge list — NO LONGER SKIPPED, now DONE.**
+The original entry below concluded this was not worth doing because
+`validate_graph` needed the full edge set right before the write regardless.
+That premise is gone: `EdgeStats` (item #13) turned its two edge-side checks
+into running tallies, and polymorphic dispatch (item #12) moved into the
+database. Those were the last two full-edge-set consumers.
+
+The resolve sink now retains **only** `_RETAINED_EDGE_TYPES` (as SlimEdge) plus
+whatever is in `defer_edge_types` (as full Edge, because it isn't written yet).
+Everything else is durable in Neo4j as of the enqueue and is dropped on the
+floor. Retention is prevented rather than released late — the bulk never enters
+`all_edges` at all, so this removes the peak instead of freeing it afterwards.
+
+Measured on the Python corpus: of 1946 edges produced by resolve, **18 are
+retained (0.9%) and 1928 dropped (99.1%)**. The retained set is bounded by
+declarations (~2-3 per node), not call sites. Projected at the 130M-edge target,
+retained bulk goes from ~8.3 GB (56 B object + 8 B list pointer) to ~0.
+
+All reported counts now come from `edge_stats.total` rather than
+`len(all_edges)`, which is only a partial list from here on.
+
+**Consequence: `GRAPH_LOWRAM_DERIVE` is now not merely redundant but actively
+harmful.** Its whole purpose was to spill the bulk to disk so derive could stream
+it; with nothing left that reads the bulk, the spill is **write-only** — the only
+remaining uses of the `DiskEdgeStore` in `_lowram_derive_and_write` are `len()`
+and the `rmtree` that deletes it. Enabling the flag now writes 130M edges to disk
+and deletes them unread, for no benefit the default path doesn't already give.
+It should be deleted (with `lowram_derive.py`, the tail, the guards, the flag and
+its tests); left standing only pending that call.
+
+**Item #13 (new): validate_graph stopped scanning edges — DONE.**
+`validate_graph(nodes, edges)` became `validate_graph(nodes, edge_stats)`. Its
+only edge-side work was a per-type histogram and a dangling-endpoint count —
+both pure accumulations, now tallied in `validator.EdgeStats` as edges are
+produced (seeded after extraction, updated in the resolve sink and each derive
+pass). Identical numbers, since it counts the same multiset the scan did;
+verified against `result.edges` on both corpora. `add_count` folds in edges
+created by Cypher that never pass through Python. SCIP is the one stage that
+*replaces* already-counted edges, so it recounts via `reset()` — unreachable on
+the default path.
+
+**Two always-dead checks removed here**, both the same shape: a check reading a
+field the pre-resolve write blanks in RAM, running after that write.
+`"function nodes missing core metrics"` (`n.loc <= 0 or n.cyclomatic <= 0`)
+fired for every function on every run; the `end_col < start_col` range check
+never fired at all.
+
+**Item #12 (new): polymorphic dispatch moved into the database — DONE.**
+`_synthesize_polymorphic_calls` (normal path) and `streaming_polymorphic_calls`
+(low-RAM) both deleted; `cypher_derive_reference.synthesize_polymorphic_calls_cypher`
+is now wired into `index_repo`, running after the final edge write (it needs
+every `CALLS` and `OVERRIDES` durable first). **This was the last derive pass
+that scanned the whole CALLS bulk** — which is what unblocks item #2b.
+
+Consumers are unaffected: the Cypher still sets `r.strategy='polymorphic_dispatch'`,
+which is what `agents.py:339` and `taint.py:1081,1102` read off the Neo4j
+relationship. Moving expansion to query time instead would have broken them.
+
+**Two intentional divergences.** (a) The arbitrary top-25 fan-out cap
+(`_POLY_FANOUT_GUARD`) is gone — it had no faithful Cypher equivalent because
+its selection depended on Python list-append order, and uncapped is complete and
+order-independent rather than arbitrary. On very wide hierarchies this creates
+more edges than before. (b) `evidence_file` is no longer propagated to synthetic
+edges; nothing read it. `evidence_line` still is (`exception_walk.py:220` and
+`two_agent`'s `caller_evidence_lines`).
+
+Validation now runs **after** the write rather than at the end of derive, so the
+Cypher's output is included in the reported totals (`EdgeStats.add_count` folds
+in the count the query returns). Nothing gates on `validation["ok"]` — it is
+reported only, at `ingest/build.py:109` — so the move is safe.
+
+**Coverage loss, stated plainly:** the synthetic edges can no longer be asserted
+from the test suite, because they are produced by the database. The tests now
+only verify that both paths *invoke* the Cypher. Neither corpus exercised it
+meaningfully anyway (the Python corpus has no `OVERRIDES`; the Java one has 5
+but no callers of the overridden methods), so this loses little in practice —
+but a real-corpus check against Neo4j is the only thing that can confirm it now.
+
+Also in this sweep: `SlimEdge` shrank to `(type, src, dst)` — 88 B → ~56 B per
+retained stand-in, and the low-RAM spill shrank by the same fraction — because
+the polymorphic pass was the **only** Python code that read `evidence_*` off an
+existing edge. And three dead edge properties stopped being written
+(`extractor`, `evidence_col`, `evidence_file`), taking the per-edge write payload
+from 8 properties to 4.
+
+**Item #11 (new): dead code and unpersisted properties — DONE.**
+- The `if False:` joblib dump block (69 lines) plus `get_dump_graph_path` /
+  `get_dump_shard_size`. It could never have been re-enabled as written: its own
+  guard raised on `stream_nodes or stream_writer`, both hardcoded `True`.
+- `IndexResult.roles` — the role pass went in item #3; every construction passed
+  a hardcoded `{}`.
+- 12 node properties stopped being persisted (still computed and used during the
+  build where relevant): `package`, `start_col`, `end_col`, `display_name`,
+  `param_types`, `host`, `loc`, `cyclomatic`, `branch_count`, `loop_count`,
+  `role_source`, `extractor`. Node write payload: 30 → 18 properties.
+  `modifiers` deliberately kept; the booleans (`is_abstract`/`is_static`/
+  `is_async`) kept because `_clean` drops False so only the true ones cost
+  anything. Decorators are unaffected — they are `ANNOTATED_WITH` edges to
+  `Annotation` nodes, not a node property.
+
+**Two always-dead checks found and removed while doing this**, both the same
+shape — a check reading a field that the pre-resolve write blanks in RAM, run
+after that write, so it could never fire:
+- `validate_graph`'s "function nodes missing core metrics" warning
+  (`n.loc <= 0 or n.cyclomatic <= 0`) fired for **every function on every run**.
+- `validate_graph`'s `end_col < start_col` range check never fired at all.
+
+**`arg_names` was deliberately NOT removed** (user's call, held for later).
+Worth recording what was found: both extractors compute it
+(`_pass_arg_names`/`_call_arg_names` walk every call site's argument list) and
+then **never pass the result to `ref()`** — so `RawRef.arg_names` is always
+empty and every `Edge.arg_names` is `None`. The extraction work is pure waste
+today; wiring it up or dropping the computation are both open.
+
+**Item #10 (new): removed the DFG pass and `dfg_json` entirely — DONE.**
+Follows item #9: with `PASSES` gone, `dataflow.py`'s only remaining product was
+the per-function summary serialized onto each `Function` node as `dfg_json`.
+
+Unlike #8 and #9 this was **not** a zero-consumer removal — `dfg_json` had real
+readers (`taint.py` at 5 Cypher sites / ~12 parse sites, `agents.py`'s
+`_has_sink_flows`). It is a deliberate architectural swap, made on the user's
+decision: Agent B's deterministic taint composition (`find_taint_findings`) is
+retired in favour of Agent C reading the source of each candidate path directly.
+
+The reasoning: `dfg_json` supplies two facts per call site — which of the
+caller's params flow into an argument (`from_params`), and which callee param it
+lands in (`arg_position`/`arg_keyword`). The second is what lets a *program*
+thread a parameter index across hops; without it a deterministic walker has
+nothing to carry and every callee must be treated as wholly tainted. But an LLM
+reading the same source re-derives both more accurately than the heuristic does
+(which explicitly gave up on `*args`/`**kwargs` splats). Once Agent C reads the
+path anyway, `dfg_json` is a precomputed, lossier copy of its own conclusion.
+
+Also decisive: the pass cost a **second full tree-sitter parse of the whole
+repo** (it re-read every file with a Function node from disk, in its own
+`ProcessPoolExecutor`), plus ~1.8 KB of JSON per function held on the node
+objects from dataflow through to the final write (~1.8 GB at 1M functions). A
+deterministic taint pass over a graph too expensive to build is worth nothing.
+
+Removed: `graph_core/dataflow.py` (whole module), the `dfg_json`/
+`dfg_hash`/`dfg_returns_from_params` fields on `Node` and their `props()`
+entries, `IndexResult.dfg`, `_derived_semantics_rows()` and both
+`store.write_semantics()` calls — with items #3/#8/#10 all landed, **no derive
+pass sets a node property any more**, so there is nothing left to patch back
+onto the already-written nodes. `store.write_semantics()` itself is kept as a
+generic helper. `dataflow.py` was also dropped from `test_slim_edge.py`'s
+`_SLIM_READERS` (it was the other whole-file edge reader).
+
+Verified: node and edge counts are **unchanged** on both corpora (Python
+692/3286, Java 41/90) — `dfg_json` was a node *property*, so the graph's shape
+never depended on it; only `write_semantics` rows go 353 → 0. Low-RAM vs default
+remains equivalent. The `deriving` stage drops from 1.34s to 0.00s on the Python
+corpus and the test suite from ~7.2s to ~1.0s, both reflecting the removed
+second parse.
+
+**Fingerprint note:** `graph_fingerprint.py` still SELECTs `n.dfg_hash` (along
+with the already-removed `component_role`/`fan_in`/`fan_out`/`module_id`) and
+deliberately should — Cypher returns null for a missing property rather than
+erroring, so old goldens stay comparable and the divergence is the expected one.
+
+**Downstream break (intentional):** `taint.py`'s `find_taint_findings`,
+`find_sanitizer_candidates`, `_own_sink_params` and `agents.py`'s
+`_has_sink_flows` all read `dfg_json` and will get nulls until Agent C replaces
+them. Reversing this is cheap if Agent C disappoints — the pass is one module
+plus ~40 lines of wiring, recoverable from git.
+
+**Item #9 (new): removed `PASSES` edges entirely — DONE.** Same zero-consumer
+test that removed `fan_in`/`fan_out` in item #8, applied to the other thing
+dataflow produced. A full grep of the `sail` monorepo (all 8 services, every
+file type, plus untyped `-[r]->` traversals that could sweep it up implicitly)
+found **zero** consumers: the analyzer's taint/agents passes traverse
+`CALLS`/`READS`/`WRITES` and never `PASSES`, and the payload arrays
+(`flow_from_param`/`flow_to_param`/`flow_lines`/`const_args`) were read by
+nothing outside the builder. The only mentions anywhere were two markdown files
+describing how the edges were *built*.
+
+Removed: the ArgFlow→callee binding pass, `calls_by_src` and
+`calls_conf_by_pair` (both existed **only** to build these edges — that is 2 of
+the 3 remaining full scans of the edge set in derive), the PASSES `Edge`
+construction, the 4 payload fields on `Edge`, `PASSES` from `schema.EDGE_TYPES`,
+`defer_edge_types`' PASSES entry (with SCIP off nothing is deferred at all now),
+and `_resolve_arg_position` plus the now-unused `Confidence`/`Origin` imports in
+`dataflow.py`. The resolver's unreachable `ref.type in ("CALLS", "PASSES")` arm
+was narrowed to `CALLS` (no extractor ever emitted a PASSES ref — verified).
+
+**Deliberately kept: `dfg_json`.** That is dataflow's real product and it *is*
+load-bearing — `taint.py` reads it at 5 Cypher sites and ~12 parse sites
+(`_own_sink_params`, taint-source gating, the composition walk, the architecture
+pass), and `agents.py::_has_sink_flows` uses it for span selection. So the
+second full-repo parse that produces it stays. Note the binding never reached
+`dfg_json` anyway: `summary.to_json()` runs *before* the binding assigned
+`af.callee_id`, so the serialized summaries always carried an empty
+`callee_id` — which is why the analyzer resolves callees from the graph's own
+`CALLS` edges instead.
+
+Measured cost of what was removed: 701 B per PASSES edge (4.6× a CALLS edge —
+five payload lists), 1.36 PASSES per Function node, held as a **full** `Edge`
+object (never slimmed, a deferred type) from dataflow through to the final
+write — i.e. right through the derive→write peak. ~0.96 GB at 1M functions.
+
+Verified with a before/after capture on both corpora: `dfg_json` is
+**byte-identical** (353 rows, same node set, zero differing hashes on the Python
+corpus; 13/13 on Java), every non-PASSES edge type has identical counts, and
+node/semantics counts are unchanged. Python: 3767 → 3286 edges, exactly the 481
+PASSES removed and nothing else. Java had no PASSES, so it is unchanged at 90.
+Low-RAM vs default remains equivalent. Guarded by
+`test_lowram_equivalence.py::test_passes_edges_are_not_produced`.
+
+**Fingerprint note:** `graph_fingerprint.py` hashes every relationship type via
+an untyped `-[r]->`, so the golden fingerprints **will** diverge on the PASSES
+row. That is the expected isolated divergence for an intentional removal (same
+as item #8) — confirm the only delta is the missing type, then rebaseline.
+
+**Port note:** this repo is the sandbox copy. The same edits are needed in
+`sail/services/developer_assistant/app/services/code_review/graph_engine/graph_core/`.
+`test_corpora/python_sample/` is a frozen input fixture and was deliberately
+left untouched.
+
+**Item #5 (`GRAPH_LOWRAM_DERIVE` guard fix) — DONE.** Implemented as designed
+below: the flag now *composes* with the unconditional streaming writer instead
+of conflicting with it, and the guard rejects only its still-valid
+restrictions (SCIP / incremental / disk-streamed refs). Three defects were
+found and fixed in the process:
+
+1. **Unreachable** — `stream_writer` became an unconditional `True` (item #2),
+   so the old guard raised on every run. The flag had never actually executed
+   since that change.
+2. **Guard ran too late** — it sat just above `resolve()`, by which point
+   `store.wipe()` had run, every extracted node had been written, and their
+   bulky fields had been blanked in RAM. A rejected run left the repo
+   half-ingested in Neo4j. The check now runs before extraction, with nothing
+   written (covered by
+   `test_lowram_equivalence.py::test_lowram_rejects_unsupported_combinations_before_writing`).
+3. **Silently wrong derive** — the biggest one, and it raised nothing.
+   `EXTENDS`/`IMPLEMENTS`/`ANNOTATED_WITH` are not emitted by the extractors;
+   they are `RawRef`s that only become edges inside `resolve()`. The old code
+   split edge types on the *pre-resolve* `all_edges` (where they never appear)
+   and let the sink spill the real ones to disk, so `_derive_overrides` saw an
+   empty class hierarchy → zero `OVERRIDES` → zero polymorphic-dispatch
+   `CALLS`. The split now happens in the sink, on resolve's own output.
+   `test_lowram_tail.py` could not have caught this — it hands the tail its
+   structural edges directly — hence the new end-to-end
+   `test_lowram_equivalence.py` over `test_corpora/java_sample` (the Python
+   corpus emits no `EXTENDS` at all and does not exercise it).
+
+Verified byte-equivalent to the normal path on both corpora: identical node
+ids, edge keys, per-type edge counts, `write_semantics` rows, and node field
+values. The write contract also changed — under the streaming writer the
+pre-derive graph is already durable, so the tail now writes only `late_nodes`
++ `write_semantics` + newly derived edges, instead of re-writing all nodes
+(which would have pushed the blanked fields over the good Neo4j rows) and
+re-writing every spilled bulk edge.
+
+The original sequencing note still applies to *using* it: it trades RAM for
+real sequential disk I/O, so turn it on only when measured peak RSS demands
+it. It is off by default and the default path is untouched.
+
+Related fix in `dataflow.py`: `run_dataflow` built its `caller -> callees`
+index over *every* `CALLS` edge in the graph, up front. That is an
+edge-count-sized structure, which defeated `GRAPH_LOWRAM_DERIVE` entirely —
+the path streams edges from disk precisely to avoid one. It is now built after
+summarization and restricted to callers that actually produced an `ArgFlow`,
+so it is bounded by summarized-functions-with-arguments rather than by total
+`CALLS`. Same number of passes over the edge source, just relocated. Verified
+identical output against the pre-change baseline on both corpora (Python
+481 PASSES / 481 bound / 295 unbound; Java 0 / 0 / 3).
 
 **Item #8 (new, added after the plan's original scope): removed
 `fan_in`/`fan_out`/`recursive` and `_attach_call_metrics` entirely — DONE.**

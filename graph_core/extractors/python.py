@@ -122,7 +122,6 @@ def extract(file: FileInfo, repo: str):
         call_arity=-1,
         recv_type="",
         import_fqn="",
-        arg_names=None,
         strategy_hint="",
     ):
         refs.append(RawRef(
@@ -132,7 +131,6 @@ def extract(file: FileInfo, repo: str):
             ref_file=file.relpath,
             ref_line=node.start_point[0] + 1, ref_col=node.start_point[1],
             call_arity=call_arity,
-            arg_names=list(arg_names or []),
             strategy_hint=strategy_hint,
         ))
 
@@ -286,7 +284,6 @@ def extract(file: FileInfo, repo: str):
                 if fn is not None:
                     callee = _dotted_tail(src, fn)
                     if callee:
-                        pass_args = _pass_arg_names(src, d)
                         ref(
                             "CALLS",
                             mid,
@@ -765,23 +762,6 @@ def _string_arg(src: bytes, call_node, index: int) -> str:
         return _string_text(src, pos[index])
     return ""
 
-
-def _pass_arg_names(src: bytes, call_node) -> list[str]:
-    """Best-effort argument-name extraction for PASSES edges."""
-    out: list[str] = []
-    args = call_node.child_by_field_name("arguments")
-    if args is None:
-        return out
-    for c in args.children:
-        if c.type in ("(", ")", ","):
-            continue
-        if c.type == "identifier":
-            out.append(text(src, c))
-        elif c.type == "keyword_argument":
-            name = c.child_by_field_name("name")
-            if name is not None:
-                out.append(text(src, name))
-    return out
 
 
 def _methods_kwarg(src: bytes, call_node) -> list[str]:

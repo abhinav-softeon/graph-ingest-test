@@ -1,4 +1,4 @@
-"""Option B — DERIVE-IN-DATABASE reference (Cypher).  ⚠️ DORMANT / UNVERIFIED.
+"""Option B — DERIVE-IN-DATABASE (Cypher). PARTIALLY WIRED IN.
 
 An alternative to computing the derived layer (OVERRIDES, polymorphic CALLS)
 in Python: write only the BASE edges (extracted + resolved) to Neo4j/Aura,
@@ -6,18 +6,21 @@ then compute the derived layer with Cypher *inside the database*. This keeps
 the ingest client's RAM ~0 for the derive step — the DB holds and aggregates
 the 100M+ edges, not your process.
 
-Nothing in the pipeline imports this module. It is a starting template you can
-wire in later (e.g. from index_repo, after a base-edge write) — NOT a validated
-drop-in. Read every caveat before trusting a number.
+``synthesize_polymorphic_calls_cypher`` below IS imported and called by
+pipeline.index_repo after the final edge write. ``derive_overrides_cypher`` is
+still a dormant template — OVERRIDES is cheap in Python (it reads only the
+structural edges, which stay in RAM by design) so there was no reason to move
+it. Read every caveat before wiring anything else in.
 
 Works identically on local Neo4j and AuraDB (Cypher is portable; batching uses
 native `CALL { } IN TRANSACTIONS`, no APOC required).
 
 KNOWN SEMANTIC DIFFERENCES vs the Python derive (why this is "reference", not
 "equivalent"):
-  * The polymorphic fan-out guard is non-trivial to express faithfully in
-    Cypher — the version below is simplified and will not match the Python
-    edge-set hash. Validate before use.
+  * synthesize_polymorphic_calls_cypher IS now wired into the pipeline (it
+    replaced the Python passes). It deliberately drops the Python version's
+    arbitrary top-25 fan-out guard, so its edge set is a superset on wide
+    hierarchies — an intentional divergence, rebaselined once.
   * (fan_in/fan_out was removed entirely, not migrated — MEMORY_ARCHITECTURE_
     PLAN.md item #8 confirmed zero downstream consumers, so there was no need
     to compute it anywhere, Python or Cypher. `attach_call_metrics_cypher`,
@@ -55,27 +58,45 @@ def derive_overrides_cypher(store, repo: str) -> None:
     )
 
 
-def synthesize_polymorphic_calls_cypher(store, repo: str) -> None:
+def synthesize_polymorphic_calls_cypher(store, repo: str) -> int:
     """Make callers of an ancestor method visible as callers of each concrete
-    override (child -> ancestor -> ancestor's callers). Uses ON CREATE SET so an
-    already-existing real CALLS is never clobbered — the DB does the dedup the
-    Python `existing_calls` set did.
+    override (child -> ancestor -> ancestor's callers), server-side. Returns the
+    number of synthetic CALLS relationships created.
 
-    CAVEAT: does not apply the per-ancestor fan-out guard (top-25) the Python
-    version uses; on huge hierarchies add a `WITH ... LIMIT` per ancestor."""
-    store._run(
+    WIRED IN — this is no longer reference-only. ``pipeline.index_repo`` calls it
+    after the final edge write (it needs every CALLS and every OVERRIDES to be
+    durable first), replacing the Python ``_synthesize_polymorphic_calls`` /
+    ``streaming_polymorphic_calls`` passes. Those were the last thing in derive
+    that scanned the whole CALLS bulk.
+
+    ``ON CREATE`` means an already-existing real CALLS is never clobbered — the
+    database does the dedup the Python ``existing_calls`` set used to do.
+
+    Deliberately UNCAPPED. The Python version took only the first 25 callers per
+    ancestor (``_POLY_FANOUT_GUARD``), an arbitrary limit whose selection also
+    depended on Python list-append order — which is why it had no faithful Cypher
+    equivalent. Dropping it makes the result complete and order-independent
+    instead of arbitrary; on a very wide hierarchy it can create more edges than
+    the capped version did.
+
+    ``evidence_file`` is intentionally NOT propagated: nothing reads it back and
+    it is no longer written on base edges either. ``evidence_line`` is, because
+    ``exception_walk.py`` and ``two_agent``'s ``caller_evidence_lines`` read it.
+    """
+    rows = store.read(
         """
         MATCH (child:CodeNode {repo:$repo})-[:OVERRIDES]->(anc:CodeNode)
         MATCH (caller:CodeNode)-[ce:CALLS]->(anc)
-        CALL (caller, child, ce) {
-            MERGE (caller)-[r:CALLS]->(child)
-            ON CREATE SET r.confidence='AMBIGUOUS', r.origin='DERIVED',
-                          r.extractor='cypher', r.strategy='polymorphic_dispatch',
-                          r.evidence_file=ce.evidence_file, r.evidence_line=ce.evidence_line
-        } IN TRANSACTIONS OF 2000 ROWS
+        WHERE NOT (caller)-[:CALLS]->(child)
+        MERGE (caller)-[r:CALLS]->(child)
+        ON CREATE SET r.confidence='AMBIGUOUS', r.origin='DERIVED',
+                      r.strategy='polymorphic_dispatch',
+                      r.evidence_line=ce.evidence_line
+        RETURN count(r) AS created
         """,
         repo=repo,
     )
+    return int(rows[0]["created"]) if rows else 0
 
 
 # USES aggregation (component/module) is intentionally omitted: faithfully

@@ -202,22 +202,6 @@ with st.sidebar:
     )
 
     st.divider()
-    st.header("Low-RAM (Option A)")
-    lowram_derive = st.checkbox(
-        "Low-RAM derive (spill edges to disk)", value=False,
-        help="Sinks the bulk edges (CALLS etc.) to disk during resolve and streams them "
-             "through derive, so 100M+ edges never sit in RAM. Trades speed (extra disk I/O) "
-             "for much lower RAM. Requires SCIP OFF. "
-             "CURRENTLY BROKEN: since node/edge early-write became unconditional, this always "
-             "raises RuntimeError immediately instead of running (a known, deferred issue — "
-             "see MEMORY_ARCHITECTURE_PLAN.md item #5). Don't enable until that's fixed.",
-    )
-    edge_spill_dir = st.text_input(
-        "Edge spill dir", value="./.graph_edge_spill", disabled=not lowram_derive,
-        help="Where the on-disk edge shards go (needs ~10GB free for a 130M-edge graph).",
-    )
-
-    st.divider()
     sample_interval = st.number_input("Memory sample interval (s)", min_value=0.1, value=0.5, step=0.1)
 
 st.header("Run")
@@ -269,9 +253,6 @@ if run_btn:
         _apply_neo4j_env(neo4j_uri, neo4j_user, neo4j_password, neo4j_database)
         os.environ["GRAPH_WRITE_BATCH_SIZE"] = str(int(write_batch_size))
         os.environ["GRAPH_WRITE_WORKERS"] = str(int(write_workers))
-        os.environ["GRAPH_LOWRAM_DERIVE"] = "true" if lowram_derive else "false"
-        if lowram_derive and edge_spill_dir.strip():
-            os.environ["GRAPH_EDGE_SPILL_DIR"] = edge_spill_dir.strip()
 
         from ingest.build import build_graph_from_zip
         from ingest.toggles import apply_ingestion_toggles

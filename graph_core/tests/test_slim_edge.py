@@ -2,7 +2,7 @@
 
 A+B Step 2 projects the pre-derive edge set to SlimEdge once it's durable in
 Neo4j (Step 1). If a derive pass in pipeline.py ever starts reading a *bulky*
-Edge field (confidence, origin, extractor, strategy, arg_names, flow_*, ...)
+Edge field (confidence, origin, extractor, strategy, ...)
 that SlimEdge drops, the slim path would silently produce a worse graph — this
 is exactly how the evidence_file/evidence_line dependency in
 _synthesize_polymorphic_calls was found: a naive (type, src, dst)-only
@@ -28,17 +28,16 @@ _GRAPH_CORE = os.path.join(os.path.dirname(__file__), "..")
 
 # Files×functions that read edges which may be SlimEdge under the streaming
 # writer (Step 11: structural edges are slimmed before resolve; resolved edges
-# are slimmed by the sink; everything post-dataflow sees a fully slim list).
+# are slimmed by the sink; everything post-resolve sees a fully slim list).
 # pipeline._build_package_tree/_derive_sql_links don't take an edges arg —
-# excluded. None means "whole file" (resolver/dataflow read edges at their
-# top-level pass functions).
+# excluded. None means "whole file" (resolver reads edges at its top-level pass
+# function).
+# "dataflow.py" was listed here until the DFG pass was removed entirely (item
+# #10); "_synthesize_polymorphic_calls" until polymorphic dispatch moved into
+# the database (item #12). _derive_overrides is the last in-Python edge reader.
 _SLIM_READERS: dict[str, set[str] | None] = {
-    "pipeline.py": {
-        "_derive_overrides",
-        "_synthesize_polymorphic_calls",
-    },
+    "pipeline.py": {"_derive_overrides"},
     "resolver.py": None,
-    "dataflow.py": None,
 }
 
 # Variable names bound to an Edge (or Edge candidate) inside those functions.
@@ -68,14 +67,13 @@ def test_to_slim_copies_contract_fields():
         "CALLS", "src1", "dst1",
         confidence="AMBIGUOUS", origin="DERIVED", extractor="heuristic",
         evidence_file="pkg/foo.py", evidence_line=42, evidence_col=7,
-        strategy="polymorphic_dispatch", arg_names=["a", "b"],
+        strategy="polymorphic_dispatch",
     )
     slim = e.to_slim()
     for f in SLIM_EDGE_FIELDS:
         assert getattr(slim, f) == getattr(e, f), f"to_slim mismatch on {f}"
     assert not hasattr(slim, "origin")  # bulky fields genuinely absent
     assert not hasattr(slim, "strategy")
-    assert not hasattr(slim, "arg_names")
 
 
 def _forbidden_reads() -> list[str]:

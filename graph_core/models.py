@@ -93,16 +93,31 @@ class Node:
     # Field-node-only metadata
     scope: str = ""                   # Field: class|module — where the variable lives
     is_lock: bool = False             # Field: True if assigned a Lock/RLock/Semaphore/Condition
-    # DFG summary (computed by dataflow.py at index time)
-    dfg_json: str = ""                                    # serialized DfgSummary
-    dfg_returns_from_params: list[int] = field(default_factory=list)
-    dfg_hash: str = ""                                    # body_hash at summary time
     # provenance
     extractor: str = ""              # who produced this node (tree-sitter)
     confidence: str = Confidence.EXTRACTED.value
 
     def props(self) -> dict:
-        """Property map written to Neo4j (everything except id, set via MERGE)."""
+        """Property map written to Neo4j (everything except id, set via MERGE).
+
+        Deliberately narrower than the dataclass. These fields are still
+        computed and used DURING the build but are no longer persisted, because
+        a sweep of every consumer in the sail monorepo found nothing reading
+        them back (item #11):
+
+          package        -- drives _build_package_tree here; the resulting
+                            Package nodes + CONTAINS edges are the queryable form
+          start_col/end_col, display_name, param_types, host
+          loc/cyclomatic/branch_count/loop_count  -- metrics, unread
+          role_source    -- the role pass itself went in item #3
+          extractor      -- provenance, unread
+
+        Dropping them shrinks every node row on the write path (the expensive
+        tail), not the in-RAM objects — most are already blanked in RAM by the
+        pre-resolve write. Booleans like is_abstract/is_static/is_async are KEPT:
+        _clean drops False, so only the true ones cost anything, and they carry
+        real semantics. Decorators/annotations are unaffected — they are
+        ANNOTATED_WITH edges to Annotation nodes, not a node property."""
         return _clean({
             "name": self.name,
             "fqn": self.fqn,
@@ -110,12 +125,8 @@ class Node:
             "kind": self.kind,
             "lang": self.lang,
             "file": self.file,
-            "package": self.package,
             "start_line": self.start_line,
-            "start_col": self.start_col,
             "end_line": self.end_line,
-            "end_col": self.end_col,
-            "display_name": self.display_name,
             "visibility": self.visibility,
             "modifiers": self.modifiers,
             "is_static": self.is_static,
@@ -124,27 +135,16 @@ class Node:
             "return_type": self.return_type,
             "param_count": self.param_count,
             "param_names": self.param_names,
-            "param_types": self.param_types,
             "signature": self.signature,
             "docstring": self.docstring,
             "body_hash": self.body_hash,
             "method": self.method,
             "route": self.route,
-            "host": self.host,
-            "loc": self.loc,
-            "cyclomatic": self.cyclomatic,
-            "branch_count": self.branch_count,
-            "loop_count": self.loop_count,
             "component_role": self.component_role,
-            "role_source": self.role_source,
             "role_confidence": self.role_confidence,
             "module_id": self.module_id,
             "scope": self.scope,
             "is_lock": self.is_lock,
-            "dfg_json": self.dfg_json,
-            "dfg_returns_from_params": self.dfg_returns_from_params,
-            "dfg_hash": self.dfg_hash,
-            "extractor": self.extractor,
             "confidence": self.confidence,
         })
 
@@ -157,17 +157,26 @@ class Node:
             kind=self.kind, lang=self.lang, file=self.file, package=self.package,
             scope=self.scope, param_count=self.param_count,
             method=self.method, route=self.route,
+            repo=self.repo, start_line=self.start_line,
+            start_col=self.start_col, end_line=self.end_line,
         )
 
 
-# Fields the resolver's matching logic reads off a node — the ONLY fields a slim
-# projection must carry to produce byte-identical resolution (verified in
-# TIER3_MEMORY_PLAN.md §4 and enforced by test_slim_node.py's guardrail). Kept as
-# a module constant so the projection, the SlimNode record, and the guardrail
-# test all derive from one source of truth.
+# Every field read off a node from the pre-resolve write onward — by the
+# resolver's matching logic AND by the post-resolve consumers (_derive_overrides,
+# _build_package_tree, _derive_sql_links, validate_graph, scip_resolver). This is
+# the ONLY set a slim projection must carry to keep output byte-identical;
+# enforced by test_slim_node.py's guardrail, which AST-scans all of them. Kept as
+# a module constant so the projection, the SlimNode record, and the guardrail all
+# derive from one source of truth.
+#
+# The last four were added when `all_nodes` itself became slim (item #14): they
+# are not used for resolution, but _derive_sql_links (repo, start_line, end_line),
+# validate_graph (start_line, end_line) and scip_resolver (start_col) read them.
 SLIM_NODE_FIELDS: tuple[str, ...] = (
     "id", "label", "name", "fqn", "kind", "lang",
     "file", "package", "scope", "param_count", "method", "route",
+    "repo", "start_line", "start_col", "end_line",
 )
 
 
@@ -176,7 +185,7 @@ class SlimNode:
     """Immutable, memory-light stand-in for a Node during resolution.
 
     Carries only SLIM_NODE_FIELDS — the fields resolver.py actually matches on —
-    dropping the bulky payload (docstring, signature, dfg_json, param_types, …)
+    dropping the bulky payload (docstring, signature, param_types, …)
     that dominates a full Node's footprint but is never read while resolving.
     Duck-types as a Node for the resolver: it exposes the same attribute names,
     so resolve() accepts a list of these with no code change to its matching
@@ -193,6 +202,10 @@ class SlimNode:
     param_count: int = 0
     method: str = ""
     route: str = ""
+    repo: str = ""
+    start_line: int = 0
+    start_col: int = 0
+    end_line: int = 0
 
 
 @dataclass(slots=True)
@@ -208,43 +221,31 @@ class Edge:
     evidence_line: int = 0           # 1-based
     evidence_col: int = 0            # 0-based
     strategy: str = ""              # resolver strategy used for destination selection
-    # These 5 fields carry payload ONLY on PASSES edges (flow_*) and CALLS/PASSES
-    # (arg_names); every other edge type leaves them unused. Defaulting to None
-    # instead of an empty list saves ~5 list objects (~280 bytes) per edge — on a
-    # multi-million-edge graph that is ~2GB of otherwise-wasted empty-list
-    # overhead held through resolve→derive→write. props()'s _clean drops empty
-    # AND None identically, so the Neo4j write (and the fingerprint) are
-    # unchanged; and no ingest code iterates these (analysis reads them back from
-    # Neo4j, never from these in-memory objects) — see TIER3_MEMORY_PLAN.md Phase 4.
-    arg_names: list[str] | None = None       # lightweight arg-flow payload (PASSES/CALLS)
-    # DFG parallel arrays on PASSES edges (index-aligned per recorded ArgFlow)
-    flow_from_param: list[int] | None = None  # caller param index (-1 = no param origin)
-    flow_to_param: list[int] | None = None    # callee param index (-1 = unmappable)
-    flow_lines: list[int] | None = None       # call-site line per entry
-    const_args: list[int] | None = None       # callee param positions that receive only literals
+    # Carries payload only on CALLS edges; every other edge type leaves it
+    # unused. Defaulting to None instead of an empty list saves a list object per
+    # edge — on a multi-million-edge graph that is GBs of otherwise-wasted
+    # empty-list overhead held through resolve→derive→write. props()'s _clean
+    # drops empty AND None identically, so the Neo4j write (and the fingerprint)
+    # are unchanged — see TIER3_MEMORY_PLAN.md Phase 4.
+    #
+    # Four sibling fields lived here — flow_from_param/flow_to_param/flow_lines/
+    # const_args, the DFG parallel arrays on PASSES edges. Removed with PASSES
+    # itself (zero consumers across the sail monorepo).
 
     def props(self) -> dict:
         return _clean({
             "confidence": self.confidence,
             "origin": self.origin,
-            "extractor": self.extractor,
-            "evidence_file": self.evidence_file,
             "evidence_line": self.evidence_line,
-            "evidence_col": self.evidence_col,
             "strategy": self.strategy,
-            "arg_names": self.arg_names,
-            "flow_from_param": self.flow_from_param,
-            "flow_to_param": self.flow_to_param,
-            "flow_lines": self.flow_lines,
-            "const_args": self.const_args,
         })
 
     def to_slim(self) -> "SlimEdge":
         """Project to a SlimEdge carrying only the fields any post-resolve
         consumer ever reads off an *existing* edge (see SLIM_EDGE_FIELDS).
         Used once the full object is durable in Neo4j (TIER3_MEMORY_PLAN.md
-        §11) — the provenance fields and PASSES/CALLS payload arrays no longer
-        need to be held in RAM for the SCIP-filter/dataflow/derive tail."""
+        §11) — the write-only provenance fields no longer need to be held in
+        RAM for the SCIP-filter/derive tail."""
         # Interned: an edge's src/dst are node-id strings that are EQUAL to, but
         # separate objects from, the ids held on the nodes themselves (refs are
         # deserialized from checkpoint bundles independently of nodes), and
@@ -253,28 +254,27 @@ class Edge:
         # measured ~2.4GB — interning collapses each distinct value to a single
         # shared object. Values are unchanged (intern returns an equal string),
         # so output is identical; the cost is one hash+lookup per field at
-        # projection time. type/confidence come from a tiny closed set.
+        # projection time. `type` comes from a tiny closed set.
         return SlimEdge(
             type=sys.intern(self.type), src=sys.intern(self.src), dst=sys.intern(self.dst),
-            evidence_file=sys.intern(self.evidence_file), evidence_line=self.evidence_line,
-            evidence_col=self.evidence_col, confidence=sys.intern(self.confidence),
         )
 
 
 # Fields read off an *existing* Edge anywhere from resolve onward (verified by
-# AST-scanning pipeline.py's derive passes, resolver.py, and dataflow.py for
+# AST-scanning pipeline.py's derive passes and resolver.py for
 # e.<attr>/ce.<attr>/support.<attr> reads; enforced by test_slim_edge.py's
-# guardrail). origin/extractor/strategy/arg_names/flow_*/const_args are only
-# ever set on NEWLY constructed edges, never read back off an existing one —
-# and by the time a SlimEdge replaces the full object (after its Neo4j write),
-# they're already durable there. Notably evidence_file/evidence_line/
-# evidence_col ARE needed (by _synthesize_polymorphic_calls) and `confidence`
-# IS needed (dataflow.py's calls_conf lookup for PASSES edges) despite none
-# of them being part of the golden edge-set hash in §7 — a naive
-# (type, src, dst)-only projection would have silently dropped them without
-# the regression oracle noticing.
+# guardrail). origin/extractor/strategy are only ever set on NEWLY
+# constructed edges, never read back off an existing one — and by the time a
+# SlimEdge replaces the full object (after its Neo4j write), they're already
+# durable there. Notably evidence_file/evidence_line/evidence_col ARE needed
+# (by _synthesize_polymorphic_calls) despite not being part of the golden
+# edge-set hash in §7 — a naive (type, src, dst)-only projection would have
+# silently dropped them without the regression oracle noticing.
+# `confidence` was carried here until its last reader — the DFG pass's
+# calls_conf lookup — went away with PASSES (items #9/#10). Nothing reads it off
+# an *existing* edge any more, so it is no longer projected.
 SLIM_EDGE_FIELDS: tuple[str, ...] = (
-    "type", "src", "dst", "evidence_file", "evidence_line", "evidence_col", "confidence",
+    "type", "src", "dst",
 )
 
 
@@ -283,18 +283,13 @@ class SlimEdge:
     """Immutable, memory-light stand-in for an already-persisted Edge.
 
     Duck-types as an Edge for every post-resolve consumer (SCIP CALLS filter,
-    dataflow's CALLS index, the derive passes, validate_graph) — same
+    the derive passes, validate_graph) — same
     attribute names, so none of their matching/aggregation logic changes.
     Drops the write-only provenance fields (origin/extractor/strategy) and
-    the PASSES/CALLS payload arrays (arg_names/flow_*/const_args) that are
-    never read back."""
+    the write-only provenance fields."""
     type: str
     src: str
     dst: str
-    evidence_file: str = ""
-    evidence_line: int = 0
-    evidence_col: int = 0
-    confidence: str = ""
 
 
 @dataclass(slots=True)
@@ -313,5 +308,4 @@ class RawRef:
     ref_line: int = 0   # 1-based
     ref_col: int = 0    # 0-based
     call_arity: int = -1
-    arg_names: list[str] = field(default_factory=list)  # optional arg names for PASSES
     strategy_hint: str = ""  # "fuzzy_name" when the ref came from a substring/loose heuristic

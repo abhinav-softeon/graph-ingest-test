@@ -98,12 +98,18 @@ def checkpoint_root() -> str | None:
 
 
 def is_streaming_ingest_enabled() -> bool:
-    """Switch for resolving against a slim (id/name/fqn-only) node projection
-    instead of full Node objects, and — when checkpointing is also enabled
-    (GRAPH_CHECKPOINT_ROOT) — streaming refs from disk one batch at a time
-    instead of holding the whole ref list in RAM (see TIER3_MEMORY_PLAN.md).
-    Node/edge early-write and slimming themselves are unconditional now
-    (MEMORY_ARCHITECTURE_PLAN.md items #1/#2) and do not depend on this flag.
+    """Streams refs from disk one batch at a time during resolve, instead of
+    holding the whole ref list in RAM, when checkpointing is also enabled
+    (GRAPH_CHECKPOINT_ROOT). At ~150 B per RawRef and multiple million refs on a
+    large repo, that list is one of the few things left that scales with call
+    sites rather than declarations — so this is now the main lever it controls.
+
+    It used to ALSO gate resolving against a slim node projection. That is
+    unconditional now: `all_nodes` is itself projected to SlimNode right after
+    the pre-resolve write and resolve reads it directly, so there is no longer a
+    separate projection to switch on (MEMORY_ARCHITECTURE_PLAN.md item #14).
+    Node/edge early-write and slimming are likewise unconditional (items #1/#2).
+
     Default OFF. Opt in with GRAPH_STREAMING_INGEST=1/true."""
     env = os.environ.get("GRAPH_STREAMING_INGEST", "").strip().lower()
     return env in ("1", "true", "yes", "on")
@@ -270,27 +276,12 @@ def get_lock_stale_seconds() -> int:
         return 1800
 
 
-def get_lowram_derive() -> bool:
-    """Opt-in low-RAM derive path (GRAPH_LOWRAM_DERIVE). When on, the pre-derive
-    edge set is spilled to disk (DiskEdgeStore) and the derive passes stream it
-    instead of holding all edges (100M+) in RAM. Off by default — the proven
-    in-RAM path is unchanged. See graph_core/lowram_derive.py.
-
-    NOTE: since the streaming writer (stream_writer) became unconditional
-    (MEMORY_ARCHITECTURE_PLAN.md item #2), pipeline.py's own guard —
-    `if lowram: if stream_writer or is_streaming_ingest_enabled(): raise
-    RuntimeError(...)` — makes this path unreachable: setting
-    GRAPH_LOWRAM_DERIVE=1 now always raises immediately instead of running.
-    Left as-is deliberately (item #5, deferred until real-corpus RAM is
-    measured against items #1/#2/#3/#6) — fix the guard only if measurement
-    shows this safety valve is still needed."""
-    return os.environ.get("GRAPH_LOWRAM_DERIVE", "").strip().lower() in ("1", "true", "yes", "on")
-
-
-def get_edge_spill_dir() -> str:
-    """Directory for the low-RAM derive edge spill (GRAPH_EDGE_SPILL_DIR).
-    Default ./.graph_edge_spill. Only used when GRAPH_LOWRAM_DERIVE is on."""
-    return os.environ.get("GRAPH_EDGE_SPILL_DIR", "").strip() or ".graph_edge_spill"
+# get_lowram_derive() / get_edge_spill_dir() lived here, backing
+# GRAPH_LOWRAM_DERIVE and GRAPH_EDGE_SPILL_DIR. The path they gated spilled the
+# bulk edges to disk so derive could stream them back; once nothing read the
+# bulk any more the spill was write-only, so the flag and its whole code path
+# were removed (MEMORY_ARCHITECTURE_PLAN.md item #16). The default path now
+# retains only structural edges, which is what the flag existed to achieve.
 
 
 def get_write_batch_size() -> int:
@@ -305,26 +296,11 @@ def get_write_batch_size() -> int:
         return 5000
 
 
-def get_dump_shard_size() -> int:
-    """Edges per shard when dumping the resolved graph (GRAPH_DUMP_SHARD_SIZE).
-    The dump is written — and read back by load_graph_to_neo4j.py — one shard at
-    a time, so the loader never holds all edges in RAM simultaneously. Matters for
-    very large graphs (100M+ edges), where a single-blob load would OOM. Default
-    2,000,000."""
-    try:
-        n = int(os.environ.get("GRAPH_DUMP_SHARD_SIZE", "2000000"))
-        return n if n > 0 else 2_000_000
-    except ValueError:
-        return 2_000_000
-
-
-def get_dump_graph_path() -> str:
-    """If set (GRAPH_DUMP_GRAPH_PATH), index_repo dumps the fully
-    resolved+derived (nodes, edges) to this joblib path and SKIPS the Neo4j
-    write, so the expensive extract/resolve/derive is done once and the graph
-    can be loaded into Neo4j separately (see load_graph_to_neo4j.py). Requires
-    streaming ingest/writer OFF (they hold no single final graph in memory)."""
-    return os.environ.get("GRAPH_DUMP_GRAPH_PATH", "").strip()
+# get_dump_shard_size() / get_dump_graph_path() lived here, backing the
+# GRAPH_DUMP_SHARD_SIZE / GRAPH_DUMP_GRAPH_PATH dump-the-whole-graph escape
+# hatch in index_repo. That block was already disabled and un-re-enablable
+# (it needed the whole graph in RAM, which the unconditional streaming write
+# rules out); both were removed together.
 
 
 @dataclass(frozen=True)

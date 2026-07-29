@@ -51,7 +51,8 @@ EDGE_TYPES = {
     # Flexible dependency layer (additive, lower-trust by default)
     "REFERENCES",   # generic symbol use when stricter typing is unavailable
     "USES",         # higher-level/component dependency
-    "PASSES",       # argument/data propagation hint (lightweight, not full DFG)
+    # "PASSES" (argument/data propagation hint) was removed — written by the
+    # DFG pass, read by nothing. The pass itself is gone too (item #10).
     "AUTOWIRED",    # dependency-injection wiring relation
     "RE_EXPORTS",   # symbol forwarding/export indirection (mainly JS/TS ecosystems)
     # Event/auth layer

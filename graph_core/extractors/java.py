@@ -110,13 +110,12 @@ def extract(file: FileInfo, repo: str):
             evidence_col=child_node.start_point[1],
         ))
 
-    def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1, arg_names=None, strategy_hint=""):
+    def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1, strategy_hint=""):
         refs.append(RawRef(
             rtype, src_id, target, kind_hint, recv=recv,
             ref_file=file.relpath,
             ref_line=node.start_point[0] + 1, ref_col=node.start_point[1],
             call_arity=call_arity,
-            arg_names=list(arg_names or []),
             strategy_hint=strategy_hint,
         ))
 
@@ -329,7 +328,6 @@ def extract(file: FileInfo, repo: str):
                 if d.type == "method_invocation":
                     nm = d.child_by_field_name("name")
                     if nm:
-                        pass_args = _call_arg_names(src, d)
                         ref(
                             "CALLS",
                             mid,
@@ -517,23 +515,6 @@ def _call_arity(call_node) -> int:
         count += 1
     return count
 
-
-def _call_arg_names(src: bytes, call_node) -> list[str]:
-    """Best-effort argument-name extraction for PASSES edges."""
-    out: list[str] = []
-    args = call_node.child_by_field_name("arguments")
-    if args is None:
-        return out
-    for c in args.children:
-        if c.type in ("(", ")", ","):
-            continue
-        if c.type == "identifier":
-            out.append(text(src, c))
-        elif c.type == "assignment_expression":
-            left = c.child_by_field_name("left")
-            if left is not None and left.type == "identifier":
-                out.append(text(src, left))
-    return out
 
 
 def _str_lit(src: bytes, node) -> str:
