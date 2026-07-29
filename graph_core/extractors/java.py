@@ -100,23 +100,15 @@ def extract(file: FileInfo, repo: str):
             evidence_col=child_node.start_point[1],
         ))
 
-    def defines(container_id: str, child_node, child_id: str):
-        # Add semantic ownership without replacing structural containment.
-        edges.append(Edge(
-            "DEFINES", container_id, child_id,
-            origin=Origin.EXTRACTED.value, extractor=EXTRACTOR,
-            evidence_file=file.relpath,
-            evidence_line=child_node.start_point[0] + 1,
-            evidence_col=child_node.start_point[1],
-        ))
-
-    def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1, strategy_hint=""):
+    def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1,
+            strategy_hint="", recv_type=""):
         refs.append(RawRef(
             rtype, src_id, target, kind_hint, recv=recv,
             ref_file=file.relpath,
             ref_line=node.start_point[0] + 1, ref_col=node.start_point[1],
             call_arity=call_arity,
             strategy_hint=strategy_hint,
+            recv_type=recv_type,
         ))
 
     def emit_endpoint(method, route, handler_id, ev_node):
@@ -210,7 +202,6 @@ def extract(file: FileInfo, repo: str):
             extractor=EXTRACTOR,
         ))
         contains(container_id, node, cid)
-        defines(container_id, node, cid)
         for ann in anns:
             ref("ANNOTATED_WITH", cid, ann, "annotation", node)
         for et in _java_auth_policy_specs(src, node):
@@ -230,9 +221,29 @@ def extract(file: FileInfo, repo: str):
         if body:
             members = body.children
             constructors = [c for c in members if c.type == "constructor_declaration"]
+            # Field name -> declared type, collected BEFORE any method is walked:
+            # a method may call through a field declared further down the class,
+            # and Java has no forward-declaration rule to stop it. This is the
+            # outermost scope of the receiver-type map each method builds on top
+            # of (see walk_method) — without it every `this.someField.doThing()`
+            # and bare `someField.doThing()` loses its receiver and falls through
+            # to the resolver's global name match.
+            field_types: dict[str, str] = {}
+            for child in members:
+                if child.type != "field_declaration":
+                    continue
+                _t = child.child_by_field_name("type")
+                _ft = simple_type_name(text(src, _t)) if _t is not None else ""
+                if not _ft:
+                    continue
+                for _d in child.children:
+                    if _d.type == "variable_declarator":
+                        _nm = _d.child_by_field_name("name")
+                        if _nm:
+                            field_types[text(src, _nm)] = _ft
             for child in members:
                 if child.type in ("method_declaration", "constructor_declaration"):
-                    walk_method(child, fqn, cid, route_prefix)
+                    walk_method(child, fqn, cid, route_prefix, field_types)
                     if child.type == "constructor_declaration":
                         _extract_ctor_di(child, cid, single=len(constructors) == 1)
                 elif child.type == "field_declaration":
@@ -258,7 +269,7 @@ def extract(file: FileInfo, repo: str):
             if t is not None:
                 ref("AUTOWIRED", class_id, simple_type_name(text(src, t)), "type", p)
 
-    def walk_method(node, class_fqn, class_id, route_prefix=""):
+    def walk_method(node, class_fqn, class_id, route_prefix="", field_types=None):
         name_node = node.child_by_field_name("name")
         is_ctor = node.type == "constructor_declaration"
         name = text(src, name_node) if name_node else (class_fqn.rsplit(".", 1)[-1] if is_ctor else "<anon>")
@@ -291,7 +302,6 @@ def extract(file: FileInfo, repo: str):
             body_hash=body_hash(text(src, node)), extractor=EXTRACTOR,
         ))
         contains(class_id, node, mid)
-        defines(class_id, node, mid)
         for ann in anns:
             ref("ANNOTATED_WITH", mid, ann, "annotation", node)
         for et in _java_auth_policy_specs(src, node):
@@ -316,6 +326,75 @@ def extract(file: FileInfo, repo: str):
                 for t in _types_in(src, c):
                     ref("THROWS", mid, t, "type", c)
 
+        # Receiver-type map for this method body, innermost scope last so the
+        # normal Java shadowing order (local > parameter > field) falls out of
+        # plain dict overwrite. Block-level scoping is deliberately flattened:
+        # re-declaring the same name at a different type within one method is
+        # rare, and a flat map is still enormously better than the nothing that
+        # was here before — every Java call used to emit an empty receiver.
+        var_types: dict[str, str] = dict(field_types or {})
+        for _nm, _tp in zip(_pnames, _ptypes):
+            if _nm and _tp:
+                var_types[_nm] = _tp[:-3] if _tp.endswith("...") else _tp
+        if body:
+            for _d in iter_descendants(body):
+                if _d.type != "local_variable_declaration":
+                    continue
+                _t = _d.child_by_field_name("type")
+                _tp = simple_type_name(text(src, _t)) if _t is not None else ""
+                if not _tp:
+                    continue
+                for _vd in _d.children:
+                    if _vd.type != "variable_declarator":
+                        continue
+                    _nm = _vd.child_by_field_name("name")
+                    if not _nm:
+                        continue
+                    _resolved = _tp
+                    if _tp == "var":
+                        # Java 10+ `var x = new Foo()` — the declared type node
+                        # says "var", so take the type off the initializer when
+                        # it is a constructor call (the only form where it is
+                        # syntactically available without real inference).
+                        _val = _vd.child_by_field_name("value")
+                        if _val is not None and _val.type == "object_creation_expression":
+                            _vt = _val.child_by_field_name("type")
+                            _resolved = simple_type_name(text(src, _vt)) if _vt is not None else ""
+                        else:
+                            _resolved = ""
+                    if _resolved:
+                        var_types[text(src, _nm)] = _resolved
+
+        def _receiver(inv):
+            """(recv, recv_type) for a method_invocation.
+
+            recv_type is what actually matters — it turns on narrow_call's
+            receiver-type step, which narrows to that class's methods instead
+            of every same-named method in the repo. recv is still passed so the
+            resolver's receiver-is-a-class-name step can catch static calls
+            (`PathUtil.normalize()`), where the identifier IS the type.
+            """
+            obj = inv.child_by_field_name("object")
+            cls_simple = class_fqn.rsplit(".", 1)[-1]
+            if obj is None:                      # unqualified call -> implicit this
+                return "this", cls_simple
+            if obj.type == "this":
+                return "this", cls_simple
+            if obj.type == "identifier":
+                nm = text(src, obj)
+                # Unknown identifier: most likely a class name (static call).
+                # Leave recv_type empty and let `recv` drive the class-name step
+                # rather than inventing a type that would narrow to nothing.
+                return nm, var_types.get(nm, "")
+            if obj.type == "field_access":
+                fname = _this_field(src, obj)    # `this.foo.bar()`
+                if fname:
+                    return fname, var_types.get(fname, "")
+            # Chained/complex receivers (`a.b().c()`, casts, array access) need
+            # return-type propagation to resolve — out of scope here, so they
+            # keep the previous behaviour of no receiver information at all.
+            return "", ""
+
         if body:
             # field-writes: `this.x = ...` (LHS of an assignment)
             write_fa = set()
@@ -328,12 +407,15 @@ def extract(file: FileInfo, repo: str):
                 if d.type == "method_invocation":
                     nm = d.child_by_field_name("name")
                     if nm:
+                        _recv, _recv_type = _receiver(d)
                         ref(
                             "CALLS",
                             mid,
                             text(src, nm),
                             "call",
                             d,
+                            recv=_recv,
+                            recv_type=_recv_type,
                             call_arity=_call_arity(d),
                         )
                         ob = _outbound_java(src, d, text(src, nm))
@@ -385,7 +467,6 @@ def extract(file: FileInfo, repo: str):
                         return_type=ftype, extractor=EXTRACTOR,
                     ))
                     contains(class_id, node, fid)
-                    defines(class_id, node, fid)
                     if type_node is not None:
                         _emit_type(ref, "OF_TYPE", fid, src, type_node)
 

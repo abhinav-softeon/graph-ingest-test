@@ -14,6 +14,7 @@ no match -> unresolved (counted, no edge). Annotations are materialized as
 """
 from __future__ import annotations
 
+import gc
 import re
 import time
 from collections import defaultdict
@@ -34,6 +35,17 @@ from .models import Confidence, Edge, IngestCancelled, Node, Origin, RawRef
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
+
+# Enum member `.value` goes through Enum's descriptor protocol on EVERY access —
+# a Python-level __get__ call, not a plain attribute load. These are read once
+# or twice per emitted edge, so at multi-million-edge scale they were measured
+# at ~1.18M descriptor calls and ~13% of resolve's total time, purely to fetch
+# constant strings. Bound once here; the values are identical, so output is
+# unchanged.
+_CONF_EXTRACTED = Confidence.EXTRACTED.value
+_CONF_INFERRED = Confidence.INFERRED.value
+_CONF_AMBIGUOUS = Confidence.AMBIGUOUS.value
+_ORIGIN_EXTRACTED = Origin.EXTRACTED.value
 
 
 @dataclass
@@ -120,6 +132,15 @@ def resolve(
 
     by_name: dict[str, list[Node]] = defaultdict(list)
     classes_by_name: dict[str, list[Node]] = defaultdict(list)
+    # Function-only view of by_name, precomputed rather than rebuilt per ref.
+    # narrow_call's pool used to be `[c for c in base if c.label == "Function"]
+    # or base` — a fresh list allocation on EVERY call ref, scanning every
+    # same-named node. For a hot name (`getId` in a Java repo can have tens of
+    # thousands of definitions) that allocation alone dominated. Same pool,
+    # same order, built once: `funcs_by_name.get(name) or by_name.get(name, [])`
+    # is exactly the old expression, since `or` falls through on an absent or
+    # empty function list identically.
+    funcs_by_name: dict[str, list[Node]] = defaultdict(list)
     # Precomputed once per Class/Function node here, instead of recomputed via
     # string-split/slice on every candidate on every ambiguous ref inside
     # narrow_call/narrow_type/_narrow_classes_for_recv below. For a Class node
@@ -130,6 +151,8 @@ def resolve(
         if n.label in ("Class", "Function"):
             by_name[n.name].append(n)
             class_package_by_id[n.id] = _class_package(n)
+            if n.label == "Function":
+                funcs_by_name[n.name].append(n)
         if n.label == "Class":
             classes_by_name[n.name].append(n)
 
@@ -158,6 +181,21 @@ def resolve(
             imports_by_file[ref.ref_file].add(_tail_name(ref.target_name))
         if ref.import_fqn:
             import_fqns_by_file[ref.ref_file].add(ref.import_fqn)
+
+    # Import tails per file, for _import_qualified_hits. Derived once per FILE
+    # here because that is what it depends on — it used to be recomputed inside
+    # _import_qualified_hits on every call, i.e. once per ref in the file, so a
+    # file with 40 imports re-tailed all 40 for every one of its call sites.
+    import_tails_by_file: dict[str, frozenset] = {}
+    for _f, _fqns in import_fqns_by_file.items():
+        _t = {_tail_name(i) for i in _fqns}
+        _t.discard("")
+        if _t:
+            import_tails_by_file[_f] = frozenset(_t)
+    # Lazily-filled fqn-segment memo shared by every _import_qualified_hits
+    # call (see its docstring for why it is lazy rather than precomputed).
+    fqn_segs_cache: dict[str, frozenset] = {}
+    _EMPTY_TAILS: frozenset = frozenset()
 
     # Java-only: package of the File a class/node lives in (from the File
     # node's `package` attribute, set by the Java extractor) — used for
@@ -208,6 +246,19 @@ def resolve(
     fields_of_class: dict[tuple[str, str], object] = {}
     fields_of_file: dict[tuple[str, str], object] = {}
 
+    # Composite scope indices for narrow_call steps (1) and (2). Those steps
+    # filtered the ENTIRE same-name pool linearly on one equality each
+    # (`parent_of[c.id] == src_parent`, `c.file == src_file`), so their cost
+    # scaled with the number of same-named symbols in the repo — which itself
+    # scales with repo size. That made resolve quadratic in codebase size:
+    # measured 4.2 us/ref at 3.4k nodes rising to 51.4 us/ref at 55k nodes,
+    # doubling per doubling. Keying the equality directly turns each step into
+    # one dict probe, at ~212 B/node for the pair. Same scalar-or-list shape as
+    # methods_of_class above, and built in node iteration order so the
+    # candidate lists stay ordered exactly as pool-filtering produced them.
+    by_name_parent: dict[tuple[str, str], object] = {}
+    by_name_file: dict[tuple[str, str], object] = {}
+
     def _index_member(idx: dict, key: tuple[str, str], node: Node) -> None:
         cur = idx.get(key)
         if cur is None:
@@ -221,6 +272,13 @@ def resolve(
         if n.label == "Field" and n.scope == "module" and n.file:
             _index_member(fields_of_file, (n.file, n.name), n)
         p = parent_of.get(n.id)
+        # Before the class-parent guard below: these two cover every
+        # Class/Function node, whatever its container is (file, function,
+        # module), because narrow_call's pool does too.
+        if n.label in ("Class", "Function"):
+            _index_member(by_name_parent, (n.name, p), n)
+            if n.file:
+                _index_member(by_name_file, (n.name, n.file), n)
         if not (p and nodes_by_id.get(p) and nodes_by_id[p].label == "Class"):
             continue
         if n.label == "Function" and n.kind == "method":
@@ -270,7 +328,9 @@ def resolve(
         exact = [c for c in candidates if c.fqn in imported_fqns]
         if exact:
             return exact
-        qualified_hits = _import_qualified_hits(candidates, imported_fqns)
+        qualified_hits = _import_qualified_hits(
+            candidates, import_tails_by_file.get(src_file, _EMPTY_TAILS), fqn_segs_cache,
+        )
         if qualified_hits:
             return qualified_hits
         src_pkg = package_by_file.get(src_file, "")
@@ -292,22 +352,48 @@ def resolve(
     def narrow_call(ref: RawRef) -> tuple[list[Node], str]:
         """Best candidate set for a CALLS ref with deterministic strategy ordering."""
         name = ref.target_name
-        base = by_name.get(name, [])
-        pool = [c for c in base if c.label == "Function"] or base
+        # The receiver's type is KNOWN and is not a class we extracted: the
+        # callee lives in a library/JDK type, so no in-repo function can be the
+        # target. Every candidate below would be wrong by construction.
+        #
+        # Without this, such a call falls all the way through to the step (5)
+        # arity fallback and fans out across every same-named function in the
+        # repo — `conn.close()` matching every `close()` in the codebase,
+        # `logger.info()` every `info()`. In a JDBC/collections-heavy Java repo
+        # that is a large share of all call sites, and 100% of the edges it
+        # produces are false. Returning no candidates costs nothing real: the
+        # true target was never in the graph to find.
+        #
+        # Deliberately keyed on recv_type (the DECLARED type) rather than recv
+        # (the variable name) — an unknown variable name could still be a static
+        # call on an in-repo class, which the receiver-is-a-class-name step below
+        # handles. Refs with no recv_type at all are untouched.
+        if ref.recv_type and ref.recv_type not in classes_by_name:
+            return [], "external_receiver"
+        fns = funcs_by_name.get(name)
+        pool = fns or by_name.get(name, [])
         if not pool:
             return [], "none"
+        # Did the pool narrow to Functions? Steps (1)/(2) probe indices built
+        # over all Class/Function nodes, so their hits need the same label
+        # filter the old pool comprehension applied up front.
+        fns_only = fns is not None
         src_node = nodes_by_id.get(ref.src)
 
         # (1) Same-scope preference: same immediate container (class/file/function).
         src_parent = parent_of.get(ref.src)
         if src_parent is not None:
-            same_scope = [c for c in pool if parent_of.get(c.id) == src_parent]
+            same_scope = _members(by_name_parent, (name, src_parent))
+            if fns_only and same_scope:
+                same_scope = [c for c in same_scope if c.label == "Function"]
             if same_scope:
                 return _apply_arity(ref, same_scope, "same_scope")
 
         # (2) Same-file preference.
         if src_node is not None and src_node.file:
-            same_file = [c for c in pool if c.file == src_node.file]
+            same_file = _members(by_name_file, (name, src_node.file))
+            if fns_only and same_file:
+                same_file = [c for c in same_file if c.label == "Function"]
             if same_file:
                 return _apply_arity(ref, same_file, "same_file")
 
@@ -325,7 +411,9 @@ def resolve(
             exact_owner_hits = [c for c in pool if class_package_by_id.get(c.id, "") in imported_fqns]
             if exact_owner_hits:
                 return _apply_arity(ref, exact_owner_hits, "imports_qualified_exact")
-            qualified_hits = _import_qualified_hits(pool, imported_fqns)
+            qualified_hits = _import_qualified_hits(
+                pool, import_tails_by_file.get(src_node.file, _EMPTY_TAILS), fqn_segs_cache,
+            )
             if qualified_hits:
                 return _apply_arity(ref, qualified_hits, "imports_qualified")
             if imported:
@@ -400,7 +488,9 @@ def resolve(
             exact = [c for c in pool if c.fqn in imported_fqns]
             if exact:
                 return exact, "imports_qualified_exact"
-            qualified_hits = _import_qualified_hits(pool, imported_fqns)
+            qualified_hits = _import_qualified_hits(
+                pool, import_tails_by_file.get(src_file, _EMPTY_TAILS), fqn_segs_cache,
+            )
             if qualified_hits:
                 return qualified_hits, "imports_qualified"
 
@@ -489,7 +579,7 @@ def resolve(
         # source); the *resolution* uncertainty is carried by `confidence`.
         return Edge(
             edge_type or ref.type, ref.src, dst, confidence,
-            origin=Origin.EXTRACTED.value, extractor="heuristic",
+            origin=_ORIGIN_EXTRACTED, extractor="heuristic",
             evidence_file=ref.ref_file, evidence_line=ref.ref_line,
             evidence_col=ref.ref_col,
             strategy=strategy,
@@ -503,7 +593,7 @@ def resolve(
         elif len(wanted) > 1:
             for c in wanted:
                 out_edges.append(
-                    make_edge(ref, c.id, Confidence.AMBIGUOUS.value, strategy=strategy)
+                    make_edge(ref, c.id, _CONF_AMBIGUOUS, strategy=strategy)
                 )
             cov.ambiguous += 1
         elif known_in_repo:
@@ -527,7 +617,7 @@ def resolve(
                     id=aid, label="Annotation", name=ref.target_name,
                     fqn=f"@{ref.target_name}", repo=repo, kind="annotation",
                 ))
-            out_edges.append(make_edge(ref, aid, Confidence.EXTRACTED.value, strategy="annotation"))
+            out_edges.append(make_edge(ref, aid, _CONF_EXTRACTED, strategy="annotation"))
             cov.resolved += 1
             return
 
@@ -546,9 +636,9 @@ def resolve(
                     display_name=ref.target_name,
                 ))
             if ref.strategy_hint == "fuzzy_name":
-                conf, strat = Confidence.AMBIGUOUS.value, "fuzzy_name"
+                conf, strat = _CONF_AMBIGUOUS, "fuzzy_name"
             else:
-                conf, strat = Confidence.EXTRACTED.value, "event_marker"
+                conf, strat = _CONF_EXTRACTED, "event_marker"
             out_edges.append(make_edge(ref, eid, conf, strategy=strat))
             cov.resolved += 1
             return
@@ -566,9 +656,9 @@ def resolve(
                     fqn=f"policy://{pname}", repo=repo, kind="policy",
                 ))
             if ref.strategy_hint == "fuzzy_name":
-                conf, strat = Confidence.AMBIGUOUS.value, "fuzzy_name"
+                conf, strat = _CONF_AMBIGUOUS, "fuzzy_name"
             else:
-                conf, strat = Confidence.EXTRACTED.value, "auth_marker"
+                conf, strat = _CONF_EXTRACTED, "auth_marker"
             out_edges.append(make_edge(ref, pid, conf, strategy=strat))
             cov.resolved += 1
             return
@@ -582,7 +672,7 @@ def resolve(
                 # An in-repo backend exposes this route (resolves cross-file).
                 for ep in hits:
                     out_edges.append(
-                        make_edge(ref, ep.id, Confidence.EXTRACTED.value, strategy="api_match")
+                        make_edge(ref, ep.id, _CONF_EXTRACTED, strategy="api_match")
                     )
                 cov.resolved += 1
             else:
@@ -592,10 +682,10 @@ def resolve(
                 # missing route worth surfacing).
                 if host:
                     eid = endpoint_id("external", method, route, host)
-                    erepo, conf, strat = "external", Confidence.EXTRACTED.value, "api_external"
+                    erepo, conf, strat = "external", _CONF_EXTRACTED, "api_external"
                 else:
                     eid = endpoint_id(repo, method, route)
-                    erepo, conf, strat = repo, Confidence.INFERRED.value, "api_unresolved"
+                    erepo, conf, strat = repo, _CONF_INFERRED, "api_unresolved"
                 if eid not in api_endpoint_ids:
                     api_endpoint_ids.add(eid)
                     extra_nodes.append(Node(
@@ -613,6 +703,15 @@ def resolve(
         # a PASSES ref (verified), so that arm was unreachable.
         if ref.type == "CALLS":
             wanted, strategy = narrow_call(ref)
+            # Receiver typed to something outside the repo — emit nothing at all.
+            # This must short-circuit BOTH the REFERENCES demotion below and the
+            # tail-name fallback further down: each of those would otherwise
+            # re-materialize the exact fan-out narrow_call just declined to
+            # produce, only relabelled as REFERENCES. `external` is the honest
+            # bucket — the target genuinely is not in this codebase.
+            if strategy == "external_receiver":
+                cov.external += 1
+                return
             # Precision guard: a call on an *unknown* receiver that matched only by
             # global name (no scope/file/import/receiver-type evidence) is not a
             # trustworthy CALLS — it likely targets an external object that merely
@@ -631,14 +730,14 @@ def resolve(
                 rcov.total += 1
                 if len(wanted) == 1:
                     out_edges.append(make_edge(
-                        ref, wanted[0].id, Confidence.INFERRED.value,
+                        ref, wanted[0].id, _CONF_INFERRED,
                         strategy=f"{strategy}+unknown_recv", edge_type="REFERENCES",
                     ))
                     rcov.resolved += 1
                 else:
                     for c in wanted:
                         out_edges.append(make_edge(
-                            ref, c.id, Confidence.AMBIGUOUS.value,
+                            ref, c.id, _CONF_AMBIGUOUS,
                             strategy=f"{strategy}+unknown_recv", edge_type="REFERENCES",
                         ))
                     rcov.ambiguous += 1
@@ -647,7 +746,7 @@ def resolve(
                 ref,
                 cov,
                 wanted,
-                Confidence.INFERRED.value,
+                _CONF_INFERRED,
                 known_in_repo=ref.target_name in by_name,
                 strategy=strategy,
             )
@@ -663,7 +762,7 @@ def resolve(
                             make_edge(
                                 ref,
                                 fallback[0].id,
-                                Confidence.INFERRED.value,
+                                _CONF_INFERRED,
                                 strategy=f"{strategy or 'none'}+fallback_tail",
                                 edge_type="REFERENCES",
                             )
@@ -675,7 +774,7 @@ def resolve(
                                 make_edge(
                                     ref,
                                     c.id,
-                                    Confidence.AMBIGUOUS.value,
+                                    _CONF_AMBIGUOUS,
                                     strategy=f"{strategy or 'none'}+fallback_tail",
                                     edge_type="REFERENCES",
                                 )
@@ -699,7 +798,7 @@ def resolve(
                 ref,
                 cov,
                 wanted,
-                Confidence.EXTRACTED.value,
+                _CONF_EXTRACTED,
                 known_in_repo=bool(wanted),
                 strategy=strategy,
             )
@@ -711,7 +810,7 @@ def resolve(
                 ref,
                 cov,
                 wanted,
-                Confidence.EXTRACTED.value if strategy not in ("name", "none") else Confidence.INFERRED.value,
+                _CONF_EXTRACTED if strategy not in ("name", "none") else _CONF_INFERRED,
                 known_in_repo=bool(classes_by_name.get(_tail_name(ref.target_name))),
                 strategy=strategy,
             )
@@ -734,7 +833,7 @@ def resolve(
             ref,
             cov,
             wanted,
-            Confidence.INFERRED.value,
+            _CONF_INFERRED,
             known_in_repo=ref.target_name in by_name,
             strategy="kind_hint",
         )
@@ -791,33 +890,53 @@ def resolve(
     # list — already-processed refs are skipped below. For a list this is
     # identical iteration to before; for a resumed run it re-reads (cheaply
     # skips) the already-done prefix rather than slicing, which a stream can't do.
-    for _i, ref in enumerate(refs, start=1):
-        if _i <= resume_index:
-            continue
-        if (on_progress or cancel_check) and (_i % 50_000 == 0 or time.monotonic() - last_report >= 3.0):
-            last_report = time.monotonic()
-            if on_progress:
-                on_progress(_i, total_refs)
-            if cancel_check and cancel_check():
-                raise IngestCancelled(f"resolve cancelled at ref {_i}/{total_refs}")
-        if checkpoint_root and (_i % 200_000 == 0 or time.monotonic() - last_checkpoint >= _ckpt_every):
-            last_checkpoint = time.monotonic()
-            _save_checkpoint(_i)
-        if edge_sink is not None and len(out_edges) - flushed_edges >= _SINK_BATCH:
-            _sink_flush()
-        cov = coverage[ref.type]
-        cov.total += 1
-        try:
-            _resolve_one_ref(ref, cov)
-        except Exception as exc:
-            cov.external += 1
-            _log.warning(
-                "[resolve][repo=%s] skipping ref (type=%s target=%s) after error: %s",
-                repo, ref.type, getattr(ref, "target_name", ""), exc,
-            )
+    # The lookup indices built above are read-only from here on, and on a large
+    # repo they are millions of live container objects. CPython's cyclic GC
+    # rescans every one of them on each gen-2 pass, repeatedly, for nothing —
+    # they are all reachable and none can be collected while resolve runs.
+    # freeze() moves everything currently alive into a permanent generation the
+    # collector skips, so gen-2 passes walk only the churn this loop produces.
+    #
+    # Deliberately NOT gc.disable(): that would stop cycles created BY the loop
+    # from ever being collected, an unbounded leak over millions of refs and
+    # unacceptable on the memory-capped repos this targets. freeze() alone
+    # cannot leak — it only reclassifies objects that are already reachable.
+    #
+    # unfreeze() in `finally` so the permanent generation does not outlive this
+    # call: the indices become garbage once resolve returns, and leaving them
+    # frozen would exempt them from collection for the rest of the process —
+    # straight through the derive and write stages that follow.
+    gc.freeze()
+    try:
+        for _i, ref in enumerate(refs, start=1):
+            if _i <= resume_index:
+                continue
+            if (on_progress or cancel_check) and (_i % 50_000 == 0 or time.monotonic() - last_report >= 3.0):
+                last_report = time.monotonic()
+                if on_progress:
+                    on_progress(_i, total_refs)
+                if cancel_check and cancel_check():
+                    raise IngestCancelled(f"resolve cancelled at ref {_i}/{total_refs}")
+            if checkpoint_root and (_i % 200_000 == 0 or time.monotonic() - last_checkpoint >= _ckpt_every):
+                last_checkpoint = time.monotonic()
+                _save_checkpoint(_i)
+            if edge_sink is not None and len(out_edges) - flushed_edges >= _SINK_BATCH:
+                _sink_flush()
+            cov = coverage[ref.type]
+            cov.total += 1
+            try:
+                _resolve_one_ref(ref, cov)
+            except Exception as exc:
+                cov.external += 1
+                _log.warning(
+                    "[resolve][repo=%s] skipping ref (type=%s target=%s) after error: %s",
+                    repo, ref.type, getattr(ref, "target_name", ""), exc,
+                )
 
-    if edge_sink is not None:
-        _sink_flush()
+        if edge_sink is not None:
+            _sink_flush()
+    finally:
+        gc.unfreeze()
 
     return extra_nodes, out_edges, coverage
 
@@ -829,7 +948,13 @@ def _route_segments(route: str) -> list[str]:
 def _tail_name(name: str) -> str:
     if not name:
         return ""
-    return name.split(".")[-1]
+    # rfind+slice instead of split(".")[-1]: the split allocated a full list of
+    # every dotted segment just to read the last one and throw the rest away.
+    # Called ~493k times per resolve at a modest corpus size (and it scales with
+    # ref count), so the per-call list was pure garbage-collector pressure.
+    # Identical result — rfind returns -1 when there is no dot, and -1 + 1 == 0
+    # slices the whole string, which is exactly what split would have yielded.
+    return name[name.rfind(".") + 1:]
 
 
 def _apply_arity(ref: RawRef, candidates: list[Node], base_strategy: str) -> tuple[list[Node], str]:
@@ -841,34 +966,41 @@ def _apply_arity(ref: RawRef, candidates: list[Node], base_strategy: str) -> tup
     return candidates, base_strategy
 
 
-def _import_qualified_hits(candidates: list[Node], imported_fqns: set[str]) -> list[Node]:
+def _import_qualified_hits(candidates: list[Node], tails: frozenset,
+                            segs_cache: dict) -> list[Node]:
     """Candidates whose FQN contains some imported name's tail as a
     non-leading dotted segment (i.e. ``.{tail}.`` appears in the FQN, or the
     FQN ends with ``.{tail}``) — a deterministic namespace/prefix match.
 
-    Previously recomputed every import's tail for every candidate (a plain
-    ``for c in candidates: for imp in imported_fqns`` nested loop), making
-    this O(candidates * imports). For a call to a very common method name
-    (thousands of same-named candidates system-wide) in a file with many
-    imports, that nested loop alone could take tens of seconds for a single
-    ref. Tails only depend on ``imported_fqns`` (constant across every
-    candidate here), so they're computed once, up front, into a set;
     ``.{tail}.`` in fqn or fqn.endswith(f".{tail}") is exactly "tail equals
     some segment of fqn.split('.') other than the first" (the first segment
-    can never have a preceding dot), so matching against that set per
-    candidate is a handful of O(1) segment lookups instead of scanning every
-    import string — same result, no longer scaling with import count.
+    can never have a preceding dot), so this is a set intersection per
+    candidate rather than a scan over every import string.
+
+    Both inputs are now precomputed by the caller instead of rebuilt here:
+
+    ``tails`` was derived from the file's imports on EVERY call, so a file's
+    import set was re-tailed once per ref in that file. It depends only on the
+    file, so resolve() builds it once per file up front.
+
+    ``segs_cache`` memoizes each candidate's fqn segments by node id. The
+    previous code called ``(c.fqn or "").split(".")`` per candidate per call —
+    measured at ~826k splits on a modest corpus, and it scales with
+    (refs x pool size). Populated lazily rather than for every node up front,
+    so its memory tracks the candidates actually examined (hot names get
+    cached; the long tail of never-probed nodes costs nothing) — deliberate,
+    given how tight the RAM budget is on the repos this runs against.
     """
-    if not imported_fqns:
-        return []
-    tails = {_tail_name(imp) for imp in imported_fqns}
-    tails.discard("")
     if not tails:
         return []
     hits: list[Node] = []
     for c in candidates:
-        segments = (c.fqn or "").split(".")
-        if any(seg in tails for seg in segments[1:]):
+        segs = segs_cache.get(c.id)
+        if segs is None:
+            parts = (c.fqn or "").split(".")
+            segs = frozenset(parts[1:]) if len(parts) > 1 else frozenset()
+            segs_cache[c.id] = segs
+        if segs & tails:
             hits.append(c)
     return hits
 

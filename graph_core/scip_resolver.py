@@ -41,7 +41,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable
 
-from .config import scip_java_bin, scip_java_max_files, scip_python_bin
+from .config import (
+    scip_java_bin,
+    scip_java_max_files,
+    scip_java_timeout_seconds,
+    scip_python_bin,
+)
 from .models import Confidence, Edge, Node, Origin
 from sail_core.logger.logger import get_logger
 
@@ -118,6 +123,10 @@ def has_java_build_tool(repo_root: str) -> str | None:
     return None
 
 
+# Fallback only — the live value comes from config.scip_java_timeout_seconds()
+# (env SCIP_JAVA_TIMEOUT_SECONDS), read at job-start time so it can be sized to
+# the target repo's actual build. Kept as a module constant because it is the
+# documented default and several signatures below default to it.
 SCIP_JAVA_TIMEOUT_SECONDS = 900.0
 
 
@@ -153,7 +162,7 @@ def _run_subprocess_with_heartbeat(
 
 def run_scip_java(repo_root: str, out_path: str, build_tool: str,
                    on_heartbeat: "Callable[[float, float], None] | None" = None,
-                   timeout: float = SCIP_JAVA_TIMEOUT_SECONDS) -> str | None:
+                   timeout: float | None = None) -> str | None:
     """Run scip-java with cwd=repo_root. Requires a working Maven/Gradle build
     (it compiles the project via a semanticdb-javac plugin to get type info),
     so this is only worth calling when `has_java_build_tool` found one.
@@ -164,6 +173,10 @@ def run_scip_java(repo_root: str, out_path: str, build_tool: str,
     binpath = scip_java_bin()
     if not binpath:
         return None
+    # None (the default) means "read the configured budget now" — resolving it
+    # at call time rather than at import time so the env var applies.
+    if timeout is None:
+        timeout = scip_java_timeout_seconds()
     ok = _run_subprocess_with_heartbeat(
         [binpath, "index", "--build-tool", build_tool, "--output", os.path.abspath(out_path)],
         cwd=os.path.abspath(repo_root), timeout=timeout, on_heartbeat=on_heartbeat,
@@ -204,7 +217,11 @@ def start_scip_java_job(repo_root: str, java_file_count: int) -> "ScipJavaJob | 
         return None
     tmp = tempfile.NamedTemporaryFile(suffix=".scip", delete=False)
     tmp.close()
-    _log.info("[scip] scip-java: starting compile in background (%s, %s Java file(s))", build_tool, java_file_count)
+    timeout = scip_java_timeout_seconds()
+    _log.info(
+        "[scip] scip-java: starting compile in background (%s, %s Java file(s), timeout %.0fs)",
+        build_tool, java_file_count, timeout,
+    )
     try:
         proc = subprocess.Popen(
             [binpath, "index", "--build-tool", build_tool, "--output", os.path.abspath(tmp.name)],
@@ -214,7 +231,7 @@ def start_scip_java_job(repo_root: str, java_file_count: int) -> "ScipJavaJob | 
         _log.warning("[scip] scip-java: failed to launch: %s — staying on heuristic resolver for Java", exc)
         os.unlink(tmp.name)
         return None
-    return ScipJavaJob(proc=proc, out_path=tmp.name, started_at=time.time())
+    return ScipJavaJob(proc=proc, out_path=tmp.name, started_at=time.time(), timeout=timeout)
 
 
 def finish_scip_java_job(nodes: list[Node], job: "ScipJavaJob | None", project_name: str,

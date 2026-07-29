@@ -102,16 +102,6 @@ def extract(file: FileInfo, repo: str):
             evidence_col=child_node.start_point[1],
         ))
 
-    def defines(container_id: str, child_node, child_id: str):
-        # Add semantic ownership without replacing structural containment.
-        edges.append(Edge(
-            "DEFINES", container_id, child_id,
-            origin=Origin.EXTRACTED.value, extractor=EXTRACTOR,
-            evidence_file=file.relpath,
-            evidence_line=child_node.start_point[0] + 1,
-            evidence_col=child_node.start_point[1],
-        ))
-
     def ref(
         rtype,
         src_id,
@@ -203,7 +193,6 @@ def extract(file: FileInfo, repo: str):
             extractor=EXTRACTOR,
         ))
         contains(container_id, node, cid)
-        defines(container_id, node, cid)
         for dname, dnode in decos:
             ref("ANNOTATED_WITH", cid, dname, "annotation", dnode)
             for et in _auth_specs(dname, src, dnode):
@@ -255,7 +244,6 @@ def extract(file: FileInfo, repo: str):
             body_hash=body_hash(text(src, node)), extractor=EXTRACTOR,
         ))
         contains(container_id, node, mid)
-        defines(container_id, node, mid)
         for dname, dnode in decos:
             ref("ANNOTATED_WITH", mid, dname, "annotation", dnode)
             for et in _auth_specs(dname, src, dnode):
@@ -352,7 +340,6 @@ def extract(file: FileInfo, repo: str):
                         extractor=EXTRACTOR,
                     ))
                     contains(class_id, stmt, fid)
-                    defines(class_id, stmt, fid)
                     if type_node is not None:
                         _emit_type(ref, "OF_TYPE", fid, src, type_node)
 
@@ -386,7 +373,6 @@ def extract(file: FileInfo, repo: str):
                 end_line=node.end_point[0] + 1, end_col=node.end_point[1],
                 visibility=_visibility(name), scope="class", extractor=EXTRACTOR))
             contains(class_id, node, fid)
-            defines(class_id, node, fid)
         return fid
 
     def _emit_global_state(body, fn_id, module_globals: dict):
@@ -531,7 +517,6 @@ def extract(file: FileInfo, repo: str):
                 extractor=EXTRACTOR,
             ))
             contains(file_id, stmt, gid)
-            defines(file_id, stmt, gid)
             if type_node is not None:
                 _emit_type(ref, "OF_TYPE", gid, src, type_node)
             module_globals[gname] = gid

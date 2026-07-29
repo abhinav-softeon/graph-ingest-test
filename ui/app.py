@@ -25,12 +25,31 @@ from dotenv import load_dotenv
 import psutil
 import streamlit as st
 
-# Background worker threads (zip extraction, extraction/resolve process pools)
-# have no Streamlit ScriptRunContext, which is expected and harmless here —
-# nothing in those threads touches st.* directly. Silence just this one
-# Streamlit logger so its "missing ScriptRunContext" noise doesn't drown out
-# graph_ingest's own stage/memory logs; all other logging is untouched.
-logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+# Quiet Streamlit's own INFO/WARNING chatter (chiefly the repeated "missing
+# ScriptRunContext" line) so it doesn't drown out graph_ingest's stage/memory
+# logs. Errors still surface, and non-Streamlit logging is untouched.
+#
+# This MUST go through streamlit.logger.set_log_level, not
+# logging.getLogger(...).setLevel(): streamlit/logger.py's get_logger() resets
+# every logger it creates to its own global level, and the modules that emit
+# this warning are imported lazily on the first st.* call — i.e. AFTER any
+# setLevel() here — so a plain setLevel is silently undone. set_log_level
+# updates the global default as well as the already-created loggers.
+try:
+    from streamlit.logger import set_log_level as _st_set_log_level
+    _st_set_log_level("error")
+except Exception:  # noqa: BLE001 - private API; never break the app over logging
+    logging.getLogger("streamlit").setLevel(logging.ERROR)
+
+# Running this file with plain `python ui/app.py` starts Streamlit in "bare
+# mode": every widget call is a no-op, so NOTHING renders and you get one
+# "missing ScriptRunContext" warning per widget. Fail loudly instead of leaving
+# someone staring at an empty terminal wondering where the UI went.
+if not st.runtime.exists():
+    sys.exit(
+        "\nThis is a Streamlit app — running it with `python` renders nothing.\n"
+        "Start it with:\n\n    streamlit run ui/app.py\n"
+    )
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"), override=False)
 
@@ -204,7 +223,32 @@ with st.sidebar:
 
     st.divider()
     st.header("Optional subsystems")
-    scip = st.checkbox("SCIP precise resolution", value=False)
+    scip = st.checkbox(
+        "SCIP precise resolution", value=False,
+        help="Type-precise CALLS from scip-python / scip-java instead of the "
+             "heuristic name matching. scip-java compiles the project via "
+             "Maven/Gradle, so it needs a working build (JDK, dependencies) in "
+             "this environment; on any failure it falls back to the heuristic "
+             "resolver for that language.",
+    )
+    scip_only = st.checkbox(
+        "SCIP only (measurement run)", value=False, disabled=not scip,
+        help="Run discovery, extraction and SCIP indexing, then STOP — no "
+             "heuristic resolve, no derive. Use this to time what SCIP actually "
+             "costs on this repo without also paying for a full heuristic "
+             "resolve. The resulting graph is incomplete and is deliberately "
+             "NOT recorded as an up-to-date baseline, so the next real run "
+             "still re-ingests.",
+    )
+    scip_java_timeout = st.number_input(
+        "scip-java timeout (seconds)", min_value=60, max_value=86_400, value=900, step=300,
+        disabled=not scip,
+        help="Wall-clock budget for the scip-java compile. This is your project's "
+             "Maven/Gradle build time — measure it with `mvn compile` first. If the "
+             "budget is exceeded the compile is KILLED and Java silently falls back "
+             "to the heuristic resolver, so the run pays the build cost and still "
+             "does the slow pass. Default 900s is too low for a large monorepo.",
+    )
     extract_cache = st.checkbox("Local extract cache", value=True)
     extract_cache_dir = st.text_input("Extract cache dir", value="./.cache/graph_extract_cache", disabled=not extract_cache)
 
@@ -303,6 +347,8 @@ if run_btn:
             checkpoint_root=checkpoint_root,
             streaming_ingest=streaming_ingest,
             scip=scip,
+            scip_only=scip_only,
+            scip_java_timeout_seconds=float(scip_java_timeout),
             extract_cache=extract_cache,
             extract_cache_dir=extract_cache_dir,
             cache_io_workers=int(cache_io_workers),

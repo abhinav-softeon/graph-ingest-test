@@ -188,6 +188,39 @@ def is_scip_enabled() -> bool:
     return env in ("1", "true", "yes", "on")
 
 
+def scip_java_timeout_seconds() -> float:
+    """Wall-clock budget for the scip-java compile, in seconds (default 900).
+
+    This was a hardcoded 900.0 constant. scip-java's cost IS the project's
+    Maven/Gradle build, so the ceiling has to scale with the repo: a 15k-file
+    Java monorepo routinely compiles for longer than 15 minutes, and blowing
+    the budget is NOT a soft failure — the subprocess is killed and the whole
+    language silently falls back to the heuristic resolver (see
+    _run_subprocess_with_heartbeat), so the run pays the full build time AND
+    still does the slow heuristic pass. Set SCIP_JAVA_TIMEOUT_SECONDS to at
+    least a comfortable multiple of a measured `mvn compile` on the target repo.
+    """
+    try:
+        v = float(os.environ.get("SCIP_JAVA_TIMEOUT_SECONDS", "900"))
+    except ValueError:
+        return 900.0
+    return v if v > 0 else 900.0
+
+
+def is_scip_only() -> bool:
+    """Stop the run after SCIP indexing instead of continuing into the
+    heuristic resolver and the derive/write tail.
+
+    Purely a measurement mode: SCIP's cost on a large Java repo is the one
+    number that decides whether precise resolution is viable at all, and there
+    is otherwise no way to get it without also paying for a multi-hour resolve.
+    The graph produced is deliberately incomplete — nodes and structural edges
+    are written, CALLS come from SCIP, and nothing else is resolved — so a run
+    with this set is never marked as a valid diff baseline."""
+    env = os.environ.get("GRAPH_SCIP_ONLY", "false").strip().lower()
+    return env in ("1", "true", "yes", "on")
+
+
 def get_cache_io_workers() -> int:
     """Thread-pool size for extract-cache GET/PUT I/O (was a hardcoded
     constant, _CACHE_IO_WORKERS=16, in pipeline.py) — configurable so it can

@@ -18,8 +18,10 @@ from graph_core.config import (
     get_zip_extract_workers,
     is_extract_cache_enabled,
     is_scip_enabled,
+    is_scip_only,
     is_streaming_ingest_enabled,
     neo4j_config,
+    scip_java_timeout_seconds,
 )
 from graph_core.store import GraphStore
 from instrumentation.memory_sampler import MemorySampler
@@ -40,6 +42,8 @@ def _config_snapshot(project: str, repo_tag: str, scip: Optional[bool]) -> dict[
         "project": project,
         "repo_tag": repo_tag,
         "scip": scip if scip is not None else is_scip_enabled(),
+        "scip_only": is_scip_only(),
+        "scip_java_timeout_s": scip_java_timeout_seconds(),
         "extract_batch_size": extract_batch_size(),
         "extract_workers": extract_worker_count(),
         "checkpoint_root": checkpoint_root(),

@@ -9,7 +9,7 @@ Emits:
     Nodes: File, Class (kind=class|interface), Function (kind=function|method),
            Field (class fields) — with range, visibility, async/static, params,
            TS return/param types, metrics (loc, cyclomatic).
-    Edges (resolved): CONTAINS, DEFINES.
+    Edges (resolved): CONTAINS.
     RawRefs (name-only, resolved later): IMPORTS, CALLS, EXTENDS, IMPLEMENTS,
            RETURNS/HAS_TYPE/OF_TYPE (TS types).
 
@@ -216,13 +216,6 @@ def extract(file: FileInfo, repo: str):
             evidence_line=node.start_point[0] + 1, evidence_col=node.start_point[1],
         ))
 
-    def defines(container_id, node, child_id):
-        edges.append(Edge(
-            "DEFINES", container_id, child_id, origin=Origin.EXTRACTED.value,
-            extractor=EXTRACTOR, evidence_file=file.relpath,
-            evidence_line=node.start_point[0] + 1, evidence_col=node.start_point[1],
-        ))
-
     def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1,
             import_fqn=""):
         if not target:
@@ -296,7 +289,6 @@ def extract(file: FileInfo, repo: str):
             body_hash=body_hash(text(src, node)), extractor=EXTRACTOR,
         ))
         contains(container_id, node, cid)
-        defines(container_id, node, cid)
 
         # heritage: extends / implements
         heritage = None
@@ -352,7 +344,6 @@ def extract(file: FileInfo, repo: str):
             return_type=tnames[0] if tnames else "", extractor=EXTRACTOR,
         ))
         contains(class_id, node, fid)
-        defines(class_id, node, fid)
         if ann is not None:
             emit_type("OF_TYPE", fid, ann)
 
@@ -407,7 +398,6 @@ def extract(file: FileInfo, repo: str):
             return_type=tnames[0] if tnames else "", extractor=EXTRACTOR,
         ))
         contains(container_id, declarator, gid)
-        defines(container_id, declarator, gid)
 
     def _emit_function(node, parent_fqn, container_id, name, kind,
                        signature_only=False, name_node=None):
@@ -438,7 +428,6 @@ def extract(file: FileInfo, repo: str):
             body_hash=body_hash(text(src, node)), extractor=EXTRACTOR,
         ))
         contains(container_id, node, mid)
-        defines(container_id, node, mid)
         if rt_node is not None:
             emit_type("RETURNS", mid, rt_node)
         if params_node is not None:

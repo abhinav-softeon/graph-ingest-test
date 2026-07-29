@@ -23,6 +23,7 @@ from .config import (
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
+    is_scip_only,
     is_streaming_ingest_enabled,
 )
 from .discovery import FileInfo, discover, list_candidate_relpaths
@@ -45,9 +46,20 @@ _log = get_logger(__name__)
 # The ONLY edge types retained in RAM past the resolve sink. The derive passes
 # re-read these arbitrarily: CONTAINS builds the parent/scope chain,
 # EXTENDS/IMPLEMENTS build the class hierarchy for _derive_overrides,
-# ANNOTATED_WITH/EXPOSES/DEFINES are structural and tiny. All are bounded by
+# ANNOTATED_WITH/EXPOSES are structural and tiny. All are bounded by
 # DECLARATIONS rather than call sites — roughly 2-3 per node — so they are
 # orders of magnitude fewer than the CALLS bulk.
+#
+# DEFINES was here, and was an exact duplicate of CONTAINS: every extractor
+# emitted the two together from the same (container, child, evidence) triple,
+# so the only CONTAINS without a DEFINES twin were the derived package-tree
+# edges. Nothing ever read it — not resolve (which matches CONTAINS for the
+# scope chain), not the derive passes, not validate_graph, and not a single
+# Cypher query in developer_assistant's analyzer, all of which use explicitly
+# typed relationships. It was write-only: ~half the retained structural edge
+# set and a duplicate MERGE per declaration, for no consumer. Recoverable
+# exactly as `CONTAINS where src.label NOT IN ('Repository','Package')` if the
+# distinction is ever actually wanted.
 #
 # Everything else (the 100M+ CALLS and friends) is written to Neo4j by the sink
 # and then dropped on the floor: nothing downstream reads it. That is item #2b,
@@ -55,7 +67,7 @@ _log = get_logger(__name__)
 # (item #13's EdgeStats) and polymorphic dispatch moved into the database
 # (item #12) — those were the last two full-edge-set consumers.
 _RETAINED_EDGE_TYPES = frozenset({
-    "CONTAINS", "DEFINES", "EXTENDS", "IMPLEMENTS", "ANNOTATED_WITH", "EXPOSES",
+    "CONTAINS", "EXTENDS", "IMPLEMENTS", "ANNOTATED_WITH", "EXPOSES",
 })
 
 OnStage = "Callable[[str, dict], None] | None"
@@ -100,6 +112,12 @@ class IndexResult:
     # `dfg: DataflowResult` lived here — the DFG pass and its stats were
     # removed with dfg_json (MEMORY_ARCHITECTURE_PLAN.md item #10).
     stage_seconds: dict[str, float] = field(default_factory=dict)  # per-stage timing breakdown
+    # True when GRAPH_SCIP_ONLY skipped the heuristic resolve. The graph is then
+    # missing every non-SCIP edge, so callers must not record it as a valid
+    # up-to-date baseline — a later real run would otherwise diff against it and
+    # skip re-ingestion entirely (ingest/indexing.py's unchanged-hash short
+    # circuit). Purely advisory to the caller; nothing in this module reads it.
+    scip_only: bool = False
 
 
 def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
@@ -117,6 +135,20 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     resolve/derive stages still see the whole codebase and cross-file edges
     stay globally correct."""
     incremental = changed_files is not None or deleted_files is not None
+    # Measurement mode: run everything up to and including SCIP, then stop —
+    # no heuristic resolve, no derive tail. SCIP's cost on a large Java repo is
+    # the number that decides whether precise resolution is affordable at all,
+    # and there is otherwise no way to observe it without also paying for a
+    # multi-hour heuristic resolve. The resulting graph is deliberately
+    # incomplete, so IndexResult.scip_only propagates out and the caller must
+    # NOT record it as a valid diff baseline (see ingest/indexing.py).
+    scip_only = is_scip_only()
+    if scip_only and not scip:
+        _log.warning(
+            "[graph_ingest][repo=%s] GRAPH_SCIP_ONLY set but SCIP is disabled — "
+            "nothing would resolve; ignoring scip_only", repo,
+        )
+        scip_only = False
     extract_cache = get_extract_cache()
     cache_io_workers = get_cache_io_workers()
     # Fire-and-forget cache writes (local-disk in this standalone app):
@@ -700,11 +732,30 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # degraded resolution precision at chunk boundaries, which is why
     # CONFIGURATION.md already said to keep it at 1.
     try:
-        extra_nodes, resolved_edges, coverage = resolve(
-            resolve_nodes, all_edges, refs_source, repo,
-            on_progress=_resolve_progress, cancel_check=cancel_check,
-            checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
-        )
+        if scip_only:
+            # Skip the heuristic pass entirely so the run's remaining wall clock
+            # is SCIP's alone. Everything before this point (discovery,
+            # extraction, the pre-resolve node/structural-edge write) still ran,
+            # which is what SCIP needs as input — and the scip-java compile was
+            # already started before extraction, so its overlap with extraction
+            # is measured exactly as it would be on a real run.
+            _beat("resolving", "SCIP-only mode — skipping heuristic resolution")
+            # len(refs_source), not len(all_refs): under streaming ingest the
+            # refs live in a disk-backed RefStream and all_refs is empty, so the
+            # latter would always log 0 on exactly the large runs this mode is
+            # for. RefStream implements __len__ (used for total_refs above).
+            _log.warning(
+                "[graph_ingest][repo=%s] GRAPH_SCIP_ONLY: skipping heuristic resolve "
+                "(%s ref(s) discarded). The resulting graph is INCOMPLETE and will "
+                "not be recorded as a diff baseline.", repo, len(refs_source),
+            )
+            extra_nodes, resolved_edges, coverage = [], [], {}
+        else:
+            extra_nodes, resolved_edges, coverage = resolve(
+                resolve_nodes, all_edges, refs_source, repo,
+                on_progress=_resolve_progress, cancel_check=cancel_check,
+                checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
+            )
     finally:
         # Drain and stop the background writer before anything that assumes the
         # writes are durable (or before propagating a failure/cancellation).
@@ -960,6 +1011,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         scip=scip_report,
         scip_java=scip_java_report,
         stage_seconds=stage_seconds,
+        scip_only=scip_only,
     )
 
 

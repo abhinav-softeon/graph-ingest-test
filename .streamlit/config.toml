@@ -1,2 +1,6 @@
 [server]
 maxUploadSize = 1024
+
+# Streamlit's own INFO/WARNING chatter only; graph_ingest logging is separate.
+[logger]
+level = "error"
