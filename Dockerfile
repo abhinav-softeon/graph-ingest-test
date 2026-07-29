@@ -14,6 +14,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Optional: compile resolver.py/pipeline.py (resolve+derive, ~80% of ingest
+# wall time per runs/*.json) to native extensions with Cython, instead of
+# running them interpreted. Same algorithm/memory, just faster — see
+# setup_cython.py's docstring. Off by default (build is extra time + a
+# cython install); the pure-Python .py files always work as a fallback.
+# Enable with: docker build --build-arg ENABLE_COMPILED_HOTPATH=true .
+ARG ENABLE_COMPILED_HOTPATH=false
+RUN if [ "$ENABLE_COMPILED_HOTPATH" = "true" ]; then \
+        pip install --no-cache-dir cython setuptools wheel && \
+        python setup_cython.py build_ext --inplace ; \
+    fi
+
 # Edge spill goes on a fast named volume (see docker-compose.yml). Needs ~10GB
 # free for a 130M-edge graph.
 ENV GRAPH_EDGE_SPILL_DIR=/data/edge_spill \

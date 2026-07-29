@@ -1,0 +1,135 @@
+{
+  "repo": "gateA_java",
+  "node_count_total": 42,
+  "node_counts_by_label": {
+    "Annotation": 3,
+    "Class": 7,
+    "Endpoint": 1,
+    "Field": 2,
+    "File": 7,
+    "Function": 13,
+    "Module": 1,
+    "Package": 6,
+    "Repository": 1,
+    "Table": 1
+  },
+  "edge_count_total": 133,
+  "edge_counts_by_type": {
+    "ANNOTATED_WITH": 4,
+    "BELONGS_TO": 30,
+    "CALLS": 8,
+    "CONTAINS": 35,
+    "DEFINES": 22,
+    "EXPOSES": 1,
+    "EXTENDS": 2,
+    "HAS_TYPE": 1,
+    "IMPLEMENTS": 1,
+    "IMPORTS": 4,
+    "INSTANTIATES": 2,
+    "OF_TYPE": 1,
+    "OVERRIDES": 5,
+    "READS": 1,
+    "USES": 14,
+    "WRITES": 2
+  },
+  "edge_set_hash": "ceb8d71445956c849b9de07275472363",
+  "derived_props_hash": "2d234dd01a05a9f680b7ea112920d434",
+  "coverage": {
+    "ANNOTATED_WITH": {
+      "total": 4,
+      "resolved": 4,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "AUTOWIRED": {
+      "total": 3,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 3
+    },
+    "CALLS": {
+      "total": 10,
+      "resolved": 5,
+      "ambiguous": 1,
+      "unresolved": 0,
+      "external": 4
+    },
+    "EXTENDS": {
+      "total": 2,
+      "resolved": 2,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "HAS_TYPE": {
+      "total": 7,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 6
+    },
+    "IMPLEMENTS": {
+      "total": 1,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "IMPORTS": {
+      "total": 9,
+      "resolved": 4,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 5
+    },
+    "INSTANTIATES": {
+      "total": 2,
+      "resolved": 2,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "OF_TYPE": {
+      "total": 2,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 1
+    },
+    "RETURNS": {
+      "total": 8,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 8
+    },
+    "THROWS": {
+      "total": 2,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 2
+    },
+    "WRITES": {
+      "total": 1,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    }
+  },
+  "_timing": {
+    "seconds": 1.4701852798461914,
+    "stage_seconds": {
+      "discovering": 0.062,
+      "graph_parsing": 0.231,
+      "resolving": 0.001,
+      "scip_python": 0.0,
+      "scip_java": 0.0,
+      "deriving": 0.089,
+      "writing_graph": 1.087
+    }
+  }
+}

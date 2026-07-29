@@ -1,0 +1,879 @@
+"""Stage 2 (Phase-0 heuristic) — resolve name-based RawRefs to edges.
+
+A real call graph needs scip-java/Pyright. This first pass resolves by name
+within the repo, but uses cheap lexical scope to cut ambiguity for Python:
+
+  (a) `self.method()` / `cls.method()` → methods of the enclosing class.
+  (b) `Class.method()`                 → methods of that in-repo class.
+  (c) bare `func()`                    → prefer a same-file definition before
+                                         falling back to the global name index.
+
+Unique match -> INFERRED edge; multiple -> AMBIGUOUS edges to all candidates;
+no match -> unresolved (counted, no edge). Annotations are materialized as
+:Annotation nodes keyed by name (EXTRACTED: the usage is observed directly).
+"""
+from __future__ import annotations
+
+import re
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Callable
+
+from .apispec import (
+    endpoint_display,
+    endpoint_fqn,
+    endpoint_id,
+    match_key,
+    normalize_route,
+)
+from .checkpoint import load_resolve_checkpoint, save_resolve_checkpoint
+from .config import resolve_checkpoint_seconds
+from .ids import make_id
+from .models import Confidence, Edge, IngestCancelled, Node, Origin, RawRef
+from sail_core.logger.logger import get_logger
+
+_log = get_logger(__name__)
+
+
+@dataclass
+class Coverage:
+    total: int = 0
+    resolved: int = 0     # unique match
+    ambiguous: int = 0    # >1 candidate
+    unresolved: int = 0   # 0 candidates but the name DOES exist in-repo (a real miss)
+    external: int = 0     # 0 candidates and the name is unknown in-repo (stdlib/3rd-party/builtin)
+
+    @property
+    def inrepo(self) -> int:
+        """Refs that target something nameable in this repo (excludes external)."""
+        return self.resolved + self.ambiguous + self.unresolved
+
+    def pct(self) -> float:
+        """Honest resolution rate: resolved as a share of in-repo targets."""
+        return 100.0 * self.resolved / self.inrepo if self.inrepo else 0.0
+
+
+def resolve(
+    nodes: list[Node], edges: list[Edge], refs: list[RawRef], repo: str,
+    on_progress: Callable[[int, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    checkpoint_root: str | None = None,
+    edge_sink: "Callable[[list[Node], list[Edge]], list] | None" = None,
+):
+    """Return (extra_nodes, edges, coverage_by_reftype).
+
+    `edges` is the structural edge list from extraction (CONTAINS), used to
+    build the containment scope that powers scope-aware call resolution.
+
+    ``edge_sink(new_nodes, edge_batch) -> replacement_batch``: optional
+    (A+B Step 11, TIER3_MEMORY_PLAN.md §11). When given, every ~_SINK_BATCH
+    resolved edges are handed to the sink, which may persist them (to Neo4j)
+    and return lighter stand-ins (SlimEdge) to retain in their place — so the
+    full-object edge list never accumulates for the whole repo. ``new_nodes``
+    is the slice of synthesized extra_nodes created since the previous flush:
+    the sink MUST write those before the batch's edges, since a batch edge may
+    point at a just-synthesized node that isn't in Neo4j yet. Emission order
+    is preserved (batches are contiguous slices), so MERGE last-write-wins
+    for duplicate (type, src, dst) keys matches the unsinked path exactly.
+    Mutually exclusive with ``checkpoint_root`` — see the note at the
+    ``edge_sink is not None`` check below for why resume cannot currently be
+    made sound on the streaming path.
+
+    ``on_progress(done, total)``: optional heartbeat callback. Fired once
+    right before the main ref-resolution loop starts (covering the index-
+    building phase above, and resolve-checkpoint loading if resumed — that
+    window has no progress signal of its own otherwise), then periodically
+    during the loop itself (this loop can be the single longest-running step
+    for very large repos — e.g. ~4.9M refs — and previously had zero progress
+    reporting, which could make a genuinely still-running job look silently
+    dead).
+
+    ``cancel_check()``: optional callback checked periodically in the same
+    loop; if it returns True, raises ``IngestCancelled`` immediately rather
+    than returning partial results as if resolution had completed normally —
+    a caller silently treating a cancelled, partially-resolved graph as done
+    would end up writing incomplete data to Neo4j and marking it "ready" as
+    a future diff baseline. Only affects behavior when cancellation is
+    actually requested — otherwise identical to before.
+
+    ``checkpoint_root``: optional. If set, this loop periodically persists
+    its progress (next ref index, accumulated output, dedup maps, coverage)
+    to disk so a crash mid-resolve can resume from the last checkpoint
+    instead of reprocessing every ref (this loop can run for hours on a
+    multi-million-ref repo). Only affects WHERE/WHEN state is durable; the
+    matching/resolution logic itself is unchanged.
+    """
+    _log.info(
+        "[resolve][repo=%s] building lookup indices over %s node(s), %s edge(s), %s ref(s)",
+        repo, len(nodes), len(edges), len(refs),
+    )
+    _t_index_start = time.monotonic()
+    nodes_by_id: dict[str, Node] = {n.id: n for n in nodes}
+
+    by_name: dict[str, list[Node]] = defaultdict(list)
+    classes_by_name: dict[str, list[Node]] = defaultdict(list)
+    for n in nodes:
+        if n.label in ("Class", "Function"):
+            by_name[n.name].append(n)
+        if n.label == "Class":
+            classes_by_name[n.name].append(n)
+
+    # Containment: child -> parent, and class -> {method_name: [nodes]}.
+    parent_of: dict[str, str] = {}
+    for e in edges:
+        if e.type == "CONTAINS":
+            parent_of[e.dst] = e.src
+
+    imports_by_file: dict[str, set[str]] = defaultdict(set)
+    import_fqns_by_file: dict[str, set[str]] = defaultdict(set)
+    # Java-only: package-prefixes brought in via a wildcard import
+    # (`import a.b.*;`) — kept separate from import_fqns_by_file since a
+    # wildcard's import_fqn is a PACKAGE prefix, not a class FQN, and mixing
+    # it into the qualified-class matcher below would risk matching an
+    # unrelated same-tail-segment class name.
+    wildcard_pkgs_by_file: dict[str, set[str]] = defaultdict(set)
+    for ref in refs:
+        if ref.type != "IMPORTS" or not ref.ref_file:
+            continue
+        if ref.kind_hint == "import_wildcard":
+            if ref.import_fqn:
+                wildcard_pkgs_by_file[ref.ref_file].add(ref.import_fqn)
+            continue
+        if ref.target_name:
+            imports_by_file[ref.ref_file].add(_tail_name(ref.target_name))
+        if ref.import_fqn:
+            import_fqns_by_file[ref.ref_file].add(ref.import_fqn)
+
+    # Java-only: package of the File a class/node lives in (from the File
+    # node's `package` attribute, set by the Java extractor) — used for
+    # same-package auto-visibility (no import needed to see a sibling class
+    # in the same package, the most common intra-package call pattern).
+    package_by_file: dict[str, str] = {
+        n.file: (n.package or "") for n in nodes if n.label == "File" and n.file
+    }
+
+    def _class_package(n: Node) -> str:
+        fqn = n.fqn or ""
+        name = n.name or ""
+        if fqn == name or not fqn.endswith(f".{name}"):
+            return ""
+        return fqn[: -(len(name) + 1)]
+
+    # Endpoint index for CALLS_API matching. Exact key first; templated routes
+    # (segments collapsed to `*`) matched segment-wise so a concrete caller path
+    # `/api/users/42` resolves to the server's `/api/users/{id}`.
+    endpoints_by_key: dict[tuple[str, str], list[Node]] = defaultdict(list)
+    endpoint_patterns: dict[str, list[tuple[list[str], Node]]] = defaultdict(list)
+    for n in nodes:
+        if n.label != "Endpoint":
+            continue
+        method, route = match_key(n.method, n.route)
+        endpoints_by_key[(method, route)].append(n)
+        if "*" in route:
+            endpoint_patterns[method].append((_route_segments(route), n))
+
+    def match_endpoints(method: str, route: str) -> list[Node]:
+        exact = endpoints_by_key.get((method, route))
+        if exact:
+            return exact
+        caller = _route_segments(route)
+        hits = []
+        for segs, ep in endpoint_patterns.get(method, []):
+            if len(segs) == len(caller) and all(
+                ps == "*" or ps == cs for ps, cs in zip(segs, caller)
+            ):
+                hits.append(ep)
+        return hits
+
+    methods_of_class: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
+    fields_of_class: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
+    fields_of_file: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
+    for n in nodes:
+        if n.label == "Field" and n.scope == "module" and n.file:
+            fields_of_file[n.file][n.name].append(n)
+        p = parent_of.get(n.id)
+        if not (p and nodes_by_id.get(p) and nodes_by_id[p].label == "Class"):
+            continue
+        if n.label == "Function" and n.kind == "method":
+            methods_of_class[p][n.name].append(n)
+        elif n.label == "Field":
+            fields_of_class[p][n.name].append(n)
+
+    def enclosing_class_id(node_id: str) -> str | None:
+        cur = parent_of.get(node_id)
+        while cur is not None:
+            cn = nodes_by_id.get(cur)
+            if cn is None:
+                break
+            if cn.label == "Class":
+                return cur
+            cur = parent_of.get(cur)
+        return None
+
+    def _narrow_classes_for_recv(candidates: list[Node], src_file: str) -> list[Node]:
+        """Given >1 class sharing a simple name (e.g. two `PathUtil`s in
+        different packages), narrow to the one(s) actually visible from
+        `src_file` using the SAME precedence `narrow_type` uses for
+        EXTENDS/IMPLEMENTS/INSTANTIATES/AUTOWIRED: same-file > qualified
+        import (exact fqn > tail) > same-package > wildcard import > plain
+        imported simple name > give up (all).
+
+        Found live: `narrow_call`'s receiver-type/receiver-class-name steps
+        used to do `classes_by_name[name]` directly with NO package/import
+        filtering, so a call like `PathUtil.normalize(x)` with two same-name
+        `PathUtil` classes in different packages resolved to BOTH classes'
+        methods — producing duplicate/ambiguous CALLS edges (and duplicate
+        impact findings) even though only one was actually imported/visible.
+        """
+        if len(candidates) <= 1 or not src_file:
+            return candidates
+        same_file = [c for c in candidates if c.file == src_file]
+        if same_file:
+            return same_file
+        imported_fqns = import_fqns_by_file.get(src_file, set())
+        exact = [c for c in candidates if c.fqn in imported_fqns]
+        if exact:
+            return exact
+        qualified_hits = _import_qualified_hits(candidates, imported_fqns)
+        if qualified_hits:
+            return qualified_hits
+        src_pkg = package_by_file.get(src_file, "")
+        if src_pkg:
+            same_pkg = [c for c in candidates if _class_package(c) == src_pkg]
+            if same_pkg:
+                return same_pkg
+        wpkgs = wildcard_pkgs_by_file.get(src_file, set())
+        if wpkgs:
+            wcard_hits = [c for c in candidates if _class_package(c) in wpkgs]
+            if wcard_hits:
+                return wcard_hits
+        imported = imports_by_file.get(src_file, set())
+        imported_hits = [c for c in candidates if c.name in imported]
+        if imported_hits:
+            return imported_hits
+        return candidates
+
+    def narrow_call(ref: RawRef) -> tuple[list[Node], str]:
+        """Best candidate set for a CALLS ref with deterministic strategy ordering."""
+        name = ref.target_name
+        base = by_name.get(name, [])
+        pool = [c for c in base if c.label == "Function"] or base
+        if not pool:
+            return [], "none"
+        src_node = nodes_by_id.get(ref.src)
+
+        # (1) Same-scope preference: same immediate container (class/file/function).
+        src_parent = parent_of.get(ref.src)
+        if src_parent is not None:
+            same_scope = [c for c in pool if parent_of.get(c.id) == src_parent]
+            if same_scope:
+                return _apply_arity(ref, same_scope, "same_scope")
+
+        # (2) Same-file preference.
+        if src_node is not None and src_node.file:
+            same_file = [c for c in pool if c.file == src_node.file]
+            if same_file:
+                return _apply_arity(ref, same_file, "same_file")
+
+        # (3) Import-aware narrowing by imported simple names and qualified imports.
+        if src_node is not None and src_node.file:
+            imported = imports_by_file.get(src_node.file, set())
+            imported_fqns = import_fqns_by_file.get(src_node.file, set())
+            # Exact owner-class match FIRST: `_import_qualified_hits` below is
+            # a loose tail/namespace match on `pool`'s (methods') own FQN,
+            # which can't disambiguate two same-name classes in different
+            # packages that both define a same-name method — both methods'
+            # FQNs end in "....PathUtil.normalize" regardless of package, so
+            # the loose match would hit both. Checking the method's OWNING
+            # CLASS fqn against the imported fqn exactly closes that gap.
+            exact_owner_hits = [c for c in pool if _class_package(c) in imported_fqns]
+            if exact_owner_hits:
+                return _apply_arity(ref, exact_owner_hits, "imports_qualified_exact")
+            qualified_hits = _import_qualified_hits(pool, imported_fqns)
+            if qualified_hits:
+                return _apply_arity(ref, qualified_hits, "imports_qualified")
+            if imported:
+                imported_hits = [
+                    c for c in pool
+                    if c.name in imported or _tail_name(c.fqn) in imported
+                ]
+                if imported_hits:
+                    return _apply_arity(ref, imported_hits, "imports")
+
+        # (4) Receiver-type narrowing.
+        if ref.recv_type and ref.recv_type in classes_by_name:
+            src_file = src_node.file if src_node else ""
+            narrowed = _narrow_classes_for_recv(classes_by_name[ref.recv_type], src_file)
+            hits: list[Node] = []
+            for ccls in narrowed:
+                hits.extend(methods_of_class[ccls.id].get(name, []))
+            if hits:
+                return _apply_arity(ref, hits, "receiver_type_hint")
+
+        # self/cls dispatch -> a method of the enclosing class.
+        if ref.recv in ("self", "cls"):
+            cid = enclosing_class_id(ref.src)
+            if cid is not None:
+                m = methods_of_class[cid].get(name)
+                if m:
+                    return _apply_arity(ref, m, "receiver_type")
+
+        # Receiver is an in-repo class name -> that class's methods.
+        if ref.recv and ref.recv not in ("self", "cls") and ref.recv in classes_by_name:
+            src_file = src_node.file if src_node else ""
+            narrowed = _narrow_classes_for_recv(classes_by_name[ref.recv], src_file)
+            hits: list[Node] = []
+            for ccls in narrowed:
+                hits.extend(methods_of_class[ccls.id].get(name, []))
+            if hits:
+                return _apply_arity(ref, hits, "receiver_type")
+
+        # (5) Arity-only fallback if no stronger narrowing worked.
+        return _apply_arity(ref, pool, "name")
+
+    def narrow_type(ref: RawRef) -> tuple[list[Node], str]:
+        """Best candidate set for a type-shaped ref (EXTENDS/IMPLEMENTS/
+        INSTANTIATES/AUTOWIRED) with the SAME package/import-awareness
+        `narrow_call` already gives CALLS/PASSES — previously these fell
+        straight to the generic global by-name lookup with zero scope
+        narrowing at all, the single biggest precision gap for Java, where
+        multiple classes sharing a simple name across different packages
+        (e.g. several `Impl`/`Repository`/`Config` classes) is routine."""
+        name = _tail_name(ref.target_name)
+        pool = [c for c in classes_by_name.get(name, [])]
+        if not pool:
+            return [], "none"
+        if len(pool) == 1:
+            return pool, "unique"
+        src_node = nodes_by_id.get(ref.src)
+        src_file = src_node.file if src_node else ""
+
+        # (1) Same-file preference (nested/sibling classes in one file).
+        if src_file:
+            same_file = [c for c in pool if c.file == src_file]
+            if same_file:
+                return same_file, "same_file"
+
+        # (2) Qualified (single-class) imports — an explicit single-type
+        # import SHADOWS a same-package class of the same simple name (Java
+        # scoping rule), so this must be checked before same-package below.
+        # Exact FQN match beats a bare tail/namespace match, since two
+        # candidates can share the same tail.
+        if src_file:
+            imported_fqns = import_fqns_by_file.get(src_file, set())
+            exact = [c for c in pool if c.fqn in imported_fqns]
+            if exact:
+                return exact, "imports_qualified_exact"
+            qualified_hits = _import_qualified_hits(pool, imported_fqns)
+            if qualified_hits:
+                return qualified_hits, "imports_qualified"
+
+        # (3) Same-package auto-visibility (Java: no import needed).
+        src_pkg = package_by_file.get(src_file, "") if src_file else ""
+        if src_pkg:
+            same_pkg = [c for c in pool if _class_package(c) == src_pkg]
+            if same_pkg:
+                return same_pkg, "same_package"
+
+        # (4) Wildcard imports (Java: `import a.b.*;`) — candidate's package
+        # matches one of the wildcard-imported package prefixes.
+        if src_file:
+            wpkgs = wildcard_pkgs_by_file.get(src_file, set())
+            if wpkgs:
+                wcard_hits = [c for c in pool if _class_package(c) in wpkgs]
+                if wcard_hits:
+                    return wcard_hits, "imports_wildcard"
+
+        # (5) Plain imported simple-name fallback (works for Python too, and
+        # is the ORIGINAL (pre-fix) behavior for Java as a last resort).
+        if src_file:
+            imported = imports_by_file.get(src_file, set())
+            imported_hits = [c for c in pool if c.name in imported]
+            if imported_hits:
+                return imported_hits, "imports"
+
+        # (6) Give up narrowing — global name match, still ambiguous if >1.
+        return pool, "name"
+
+    _log.info(
+        "[resolve][repo=%s] lookup indices built in %.3fs", repo, time.monotonic() - _t_index_start,
+    )
+
+    extra_nodes: list[Node] = []
+    annotation_ids: dict[str, str] = {}
+    event_ids: dict[str, str] = {}
+    policy_ids: dict[str, str] = {}
+    api_endpoint_ids: set[str] = set()
+    out_edges: list[Edge] = []
+    coverage: dict[str, Coverage] = defaultdict(Coverage)
+
+    if edge_sink is not None:
+        # A metadata-only checkpoint (record the ref index, rely on the edges
+        # already being durable in Neo4j) was implemented here and REVERTED —
+        # it silently lost derived edges. Resuming skips already-resolved refs,
+        # so their edges exist only in Neo4j, not in the in-RAM edge list that
+        # dataflow and the derive passes consume; a resumed run produced fewer
+        # PASSES and USES edges than an uninterrupted one. Reloading them from
+        # Neo4j cannot fix it either: MERGE dedups relationships, so the
+        # multiplicity fan_in/fan_out depends on is unrecoverable (see §11's
+        # DO-NOT list). A sound resume must spill the slim edges to disk as
+        # resolve produces them and reload them before derive. Until then,
+        # resolve restarts from ref 0 — extraction resume is unaffected.
+        checkpoint_root = None
+
+    resume_index = 0
+    if checkpoint_root:
+        saved = load_resolve_checkpoint(checkpoint_root, repo, len(refs))
+        if saved is not None:
+            resume_index = saved["next_index"]
+            extra_nodes = saved["extra_nodes"]
+            annotation_ids = saved["annotation_ids"]
+            event_ids = saved["event_ids"]
+            policy_ids = saved["policy_ids"]
+            api_endpoint_ids = saved["api_endpoint_ids"]
+            # Absent under a metadata-only checkpoint — those edges are already
+            # in Neo4j, so resume starts with an empty in-RAM list and only
+            # accumulates edges for the refs it actually still has to resolve.
+            out_edges = saved.get("out_edges") or []
+            coverage = saved["coverage"]
+            _log.info(
+                "[resolve][repo=%s] resuming: %s/%s refs already processed",
+                repo, resume_index, len(refs),
+            )
+
+    def make_edge(
+        ref: RawRef,
+        dst: str,
+        confidence: str,
+        strategy: str = "",
+        edge_type: str | None = None,
+    ) -> Edge:
+        # Heuristic edges are still EXTRACTED-origin (the reference is observed in
+        # source); the *resolution* uncertainty is carried by `confidence`.
+        return Edge(
+            edge_type or ref.type, ref.src, dst, confidence,
+            origin=Origin.EXTRACTED.value, extractor="heuristic",
+            evidence_file=ref.ref_file, evidence_line=ref.ref_line,
+            evidence_col=ref.ref_col,
+            strategy=strategy,
+            # `or None` so an empty arg-name list doesn't allocate a list object
+            # per resolved edge (see Edge's field defaults / Phase 4).
+            arg_names=ref.arg_names or None,
+        )
+
+    def emit(ref: RawRef, cov: Coverage, wanted: list[Node], confidence: str,
+             known_in_repo: bool, strategy: str = ""):
+        if len(wanted) == 1:
+            out_edges.append(make_edge(ref, wanted[0].id, confidence, strategy=strategy))
+            cov.resolved += 1
+        elif len(wanted) > 1:
+            for c in wanted:
+                out_edges.append(
+                    make_edge(ref, c.id, Confidence.AMBIGUOUS.value, strategy=strategy)
+                )
+            cov.ambiguous += 1
+        elif known_in_repo:
+            cov.unresolved += 1   # the name exists in-repo but scope didn't pin it
+        else:
+            cov.external += 1     # nothing by that name here -> stdlib/3rd-party/builtin
+
+    def _resolve_one_ref(ref: RawRef, cov: Coverage) -> None:
+        """Resolve a single ref (the body of the old inline loop, extracted
+        so the caller can wrap it in a try/except — one malformed/unexpected
+        ref can no longer crash the entire resolve() pass; it's now isolated
+        the same way _extract_one already isolates one bad file during
+        extraction. `continue` in the original loop becomes `return` here;
+        no matching/resolution logic itself changed."""
+        if ref.type == "ANNOTATED_WITH":
+            aid = annotation_ids.get(ref.target_name)
+            if aid is None:
+                aid = make_id(repo, f"@{ref.target_name}", "annotation")
+                annotation_ids[ref.target_name] = aid
+                extra_nodes.append(Node(
+                    id=aid, label="Annotation", name=ref.target_name,
+                    fqn=f"@{ref.target_name}", repo=repo, kind="annotation",
+                ))
+            out_edges.append(make_edge(ref, aid, Confidence.EXTRACTED.value, strategy="annotation"))
+            cov.resolved += 1
+            return
+
+        if ref.type in ("EMITS_EVENT", "CONSUMES_EVENT"):
+            topic = _normalize_event_name(ref.target_name)
+            if not topic:
+                cov.unresolved += 1
+                return
+            eid = event_ids.get(topic)
+            if eid is None:
+                eid = make_id(repo, f"event:{topic}", "event")
+                event_ids[topic] = eid
+                extra_nodes.append(Node(
+                    id=eid, label="Event", name=topic,
+                    fqn=f"event://{topic}", repo=repo, kind="event",
+                    display_name=ref.target_name,
+                ))
+            if ref.strategy_hint == "fuzzy_name":
+                conf, strat = Confidence.AMBIGUOUS.value, "fuzzy_name"
+            else:
+                conf, strat = Confidence.EXTRACTED.value, "event_marker"
+            out_edges.append(make_edge(ref, eid, conf, strategy=strat))
+            cov.resolved += 1
+            return
+
+        if ref.type in ("REQUIRES_AUTH", "ENFORCES_POLICY"):
+            pname = _normalize_policy_name(ref.target_name)
+            if not pname:
+                pname = "AUTH_REQUIRED" if ref.type == "REQUIRES_AUTH" else "POLICY"
+            pid = policy_ids.get(pname)
+            if pid is None:
+                pid = make_id(repo, f"policy:{pname}", "policy")
+                policy_ids[pname] = pid
+                extra_nodes.append(Node(
+                    id=pid, label="Policy", name=pname,
+                    fqn=f"policy://{pname}", repo=repo, kind="policy",
+                ))
+            if ref.strategy_hint == "fuzzy_name":
+                conf, strat = Confidence.AMBIGUOUS.value, "fuzzy_name"
+            else:
+                conf, strat = Confidence.EXTRACTED.value, "auth_marker"
+            out_edges.append(make_edge(ref, pid, conf, strategy=strat))
+            cov.resolved += 1
+            return
+
+        if ref.type == "CALLS_API":
+            method = (ref.http_method or "GET").upper()
+            route = normalize_route(ref.target_name)
+            host = ref.recv  # carries the external host ('' for a relative URL)
+            hits = match_endpoints(method, route)
+            if hits:
+                # An in-repo backend exposes this route (resolves cross-file).
+                for ep in hits:
+                    out_edges.append(
+                        make_edge(ref, ep.id, Confidence.EXTRACTED.value, strategy="api_match")
+                    )
+                cov.resolved += 1
+            else:
+                # No in-repo handler: synthesize the target so the edge lands.
+                # External host -> external Endpoint (shared id across repos);
+                # relative path -> an unresolved in-repo Endpoint (a likely dead/
+                # missing route worth surfacing).
+                if host:
+                    eid = endpoint_id("external", method, route, host)
+                    erepo, conf, strat = "external", Confidence.EXTRACTED.value, "api_external"
+                else:
+                    eid = endpoint_id(repo, method, route)
+                    erepo, conf, strat = repo, Confidence.INFERRED.value, "api_unresolved"
+                if eid not in api_endpoint_ids:
+                    api_endpoint_ids.add(eid)
+                    extra_nodes.append(Node(
+                        id=eid, label="Endpoint",
+                        name=endpoint_display(method, route, host),
+                        fqn=endpoint_fqn(method, route, host),
+                        repo=erepo, kind="endpoint",
+                        method=method, route=route, host=host,
+                    ))
+                out_edges.append(make_edge(ref, eid, conf, strategy=strat))
+                cov.resolved += 1
+            return
+
+        if ref.type in ("CALLS", "PASSES"):
+            wanted, strategy = narrow_call(ref)
+            # Precision guard: a call on an *unknown* receiver that matched only by
+            # global name (no scope/file/import/receiver-type evidence) is not a
+            # trustworthy CALLS — it likely targets an external object that merely
+            # shares a method name. Demote it to a weak REFERENCES symbol-use edge
+            # instead of asserting a precise call. Bare calls (no receiver) and the
+            # PASSES shadow are left untouched.
+            if (
+                ref.type == "CALLS"
+                and wanted
+                and strategy.startswith("name")
+                and ref.recv
+                and ref.recv not in ("self", "cls")
+            ):
+                cov.total -= 1  # this site is accounted under REFERENCES, not CALLS
+                rcov = coverage["REFERENCES"]
+                rcov.total += 1
+                if len(wanted) == 1:
+                    out_edges.append(make_edge(
+                        ref, wanted[0].id, Confidence.INFERRED.value,
+                        strategy=f"{strategy}+unknown_recv", edge_type="REFERENCES",
+                    ))
+                    rcov.resolved += 1
+                else:
+                    for c in wanted:
+                        out_edges.append(make_edge(
+                            ref, c.id, Confidence.AMBIGUOUS.value,
+                            strategy=f"{strategy}+unknown_recv", edge_type="REFERENCES",
+                        ))
+                    rcov.ambiguous += 1
+                return
+            emit(
+                ref,
+                cov,
+                wanted,
+                Confidence.INFERRED.value,
+                known_in_repo=ref.target_name in by_name,
+                strategy=strategy,
+            )
+            if not wanted:
+                # Fallback: keep recall via a weaker symbol-use edge when a
+                # call target can't be resolved as a CALLS/PASSES destination.
+                fallback = _fallback_reference_candidates(ref.target_name, by_name)
+                if fallback:
+                    rcov = coverage["REFERENCES"]
+                    rcov.total += 1
+                    if len(fallback) == 1:
+                        out_edges.append(
+                            make_edge(
+                                ref,
+                                fallback[0].id,
+                                Confidence.INFERRED.value,
+                                strategy=f"{strategy or 'none'}+fallback_tail",
+                                edge_type="REFERENCES",
+                            )
+                        )
+                        rcov.resolved += 1
+                    else:
+                        for c in fallback:
+                            out_edges.append(
+                                make_edge(
+                                    ref,
+                                    c.id,
+                                    Confidence.AMBIGUOUS.value,
+                                    strategy=f"{strategy or 'none'}+fallback_tail",
+                                    edge_type="REFERENCES",
+                                )
+                            )
+                        rcov.ambiguous += 1
+            return
+
+        if ref.type in ("READS", "WRITES"):
+            # self.<field> resolved to the enclosing class's field — scope-exact.
+            cid = enclosing_class_id(ref.src)
+            wanted = fields_of_class[cid].get(ref.target_name, []) if cid else []
+            strategy = "same_scope"
+            if not wanted:
+                # Not inside a class (or not a class field) — fall back to a
+                # module-level global owned by the same file.
+                src_node = nodes_by_id.get(ref.src)
+                if src_node is not None and src_node.file:
+                    wanted = fields_of_file.get(src_node.file, {}).get(ref.target_name, [])
+                    strategy = "same_file_global"
+            emit(
+                ref,
+                cov,
+                wanted,
+                Confidence.EXTRACTED.value,
+                known_in_repo=bool(wanted),
+                strategy=strategy,
+            )
+            return
+
+        if ref.type in ("EXTENDS", "IMPLEMENTS", "INSTANTIATES", "AUTOWIRED"):
+            wanted, strategy = narrow_type(ref)
+            emit(
+                ref,
+                cov,
+                wanted,
+                Confidence.EXTRACTED.value if strategy not in ("name", "none") else Confidence.INFERRED.value,
+                known_in_repo=bool(classes_by_name.get(_tail_name(ref.target_name))),
+                strategy=strategy,
+            )
+            return
+
+        # Fallback for any ref type not covered by a specific branch above —
+        # only reached if none of the earlier `if ref.type == ...` blocks
+        # matched and returned (same as falling past every `continue` did in
+        # the original inline loop).
+        candidates = by_name.get(ref.target_name, [])
+        # type-shaped refs should resolve to classes; call-shaped to functions
+        if ref.kind_hint in ("type", "import"):
+            wanted = [c for c in candidates if c.label == "Class"]
+        elif ref.kind_hint == "call":
+            wanted = [c for c in candidates if c.label == "Function"]
+        else:
+            wanted = candidates
+        wanted = wanted or candidates
+        emit(
+            ref,
+            cov,
+            wanted,
+            Confidence.INFERRED.value,
+            known_in_repo=ref.target_name in by_name,
+            strategy="kind_hint",
+        )
+
+    total_refs = len(refs)
+    last_report = time.monotonic()
+    last_checkpoint = time.monotonic()
+    _ckpt_every = resolve_checkpoint_seconds()
+
+    if on_progress:
+        # Index-building above (and, if resumed, loading the prior resolve
+        # checkpoint) has no progress signal of its own — this fires once,
+        # right as the main loop is about to start, so the caller's stage
+        # reporter has something to show for that whole window instead of a
+        # static, unchanging message. resume_index (not 0) so a resumed
+        # resolve reports accurately rather than appearing to restart.
+        on_progress(resume_index, total_refs)
+
+    def _save_checkpoint(next_index: int) -> None:
+        save_resolve_checkpoint(checkpoint_root, repo, {
+            "total_refs": total_refs,
+            "next_index": next_index,
+            "extra_nodes": extra_nodes,
+            "annotation_ids": annotation_ids,
+            "event_ids": event_ids,
+            "policy_ids": policy_ids,
+            "api_endpoint_ids": api_endpoint_ids,
+            "out_edges": out_edges,
+            "coverage": coverage,
+        })
+        _log.info("[resolve][repo=%s] checkpointed at ref %s/%s", repo, next_index, total_refs)
+
+    # A+B Step 11: hand contiguous slices of out_edges (plus the extra_nodes
+    # synthesized since the previous flush) to the sink, which persists them
+    # and returns slim stand-ins that replace the slice in place — bounding
+    # full-object edge memory to ~one batch. Slice replacement keeps the same
+    # list object (emit/make_edge close over out_edges) and preserves order.
+    _SINK_BATCH = 10_000
+    flushed_edges = 0
+    flushed_nodes = 0
+
+    def _sink_flush() -> None:
+        nonlocal flushed_edges, flushed_nodes
+        if flushed_edges == len(out_edges) and flushed_nodes == len(extra_nodes):
+            return
+        out_edges[flushed_edges:] = edge_sink(
+            extra_nodes[flushed_nodes:], out_edges[flushed_edges:],
+        )
+        flushed_edges = len(out_edges)
+        flushed_nodes = len(extra_nodes)
+
+    # Enumerate from the start (not refs[resume_index:]) so `refs` may be a
+    # streaming, non-indexable source (checkpoint.RefStream) as well as a plain
+    # list — already-processed refs are skipped below. For a list this is
+    # identical iteration to before; for a resumed run it re-reads (cheaply
+    # skips) the already-done prefix rather than slicing, which a stream can't do.
+    for _i, ref in enumerate(refs, start=1):
+        if _i <= resume_index:
+            continue
+        if (on_progress or cancel_check) and (_i % 50_000 == 0 or time.monotonic() - last_report >= 3.0):
+            last_report = time.monotonic()
+            if on_progress:
+                on_progress(_i, total_refs)
+            if cancel_check and cancel_check():
+                raise IngestCancelled(f"resolve cancelled at ref {_i}/{total_refs}")
+        if checkpoint_root and (_i % 200_000 == 0 or time.monotonic() - last_checkpoint >= _ckpt_every):
+            last_checkpoint = time.monotonic()
+            _save_checkpoint(_i)
+        if edge_sink is not None and len(out_edges) - flushed_edges >= _SINK_BATCH:
+            _sink_flush()
+        cov = coverage[ref.type]
+        cov.total += 1
+        try:
+            _resolve_one_ref(ref, cov)
+        except Exception as exc:
+            cov.external += 1
+            _log.warning(
+                "[resolve][repo=%s] skipping ref (type=%s target=%s) after error: %s",
+                repo, ref.type, getattr(ref, "target_name", ""), exc,
+            )
+
+    if edge_sink is not None:
+        _sink_flush()
+
+    return extra_nodes, out_edges, coverage
+
+
+def _route_segments(route: str) -> list[str]:
+    return [s for s in route.split("/") if s]
+
+
+def _tail_name(name: str) -> str:
+    if not name:
+        return ""
+    return name.split(".")[-1]
+
+
+def _apply_arity(ref: RawRef, candidates: list[Node], base_strategy: str) -> tuple[list[Node], str]:
+    if ref.call_arity < 0:
+        return candidates, base_strategy
+    narrowed = [c for c in candidates if c.param_count == ref.call_arity]
+    if narrowed:
+        return narrowed, f"{base_strategy}+arity"
+    return candidates, base_strategy
+
+
+def _import_qualified_hits(candidates: list[Node], imported_fqns: set[str]) -> list[Node]:
+    """Candidates whose FQN contains some imported name's tail as a
+    non-leading dotted segment (i.e. ``.{tail}.`` appears in the FQN, or the
+    FQN ends with ``.{tail}``) — a deterministic namespace/prefix match.
+
+    Previously recomputed every import's tail for every candidate (a plain
+    ``for c in candidates: for imp in imported_fqns`` nested loop), making
+    this O(candidates * imports). For a call to a very common method name
+    (thousands of same-named candidates system-wide) in a file with many
+    imports, that nested loop alone could take tens of seconds for a single
+    ref. Tails only depend on ``imported_fqns`` (constant across every
+    candidate here), so they're computed once, up front, into a set;
+    ``.{tail}.`` in fqn or fqn.endswith(f".{tail}") is exactly "tail equals
+    some segment of fqn.split('.') other than the first" (the first segment
+    can never have a preceding dot), so matching against that set per
+    candidate is a handful of O(1) segment lookups instead of scanning every
+    import string — same result, no longer scaling with import count.
+    """
+    if not imported_fqns:
+        return []
+    tails = {_tail_name(imp) for imp in imported_fqns}
+    tails.discard("")
+    if not tails:
+        return []
+    hits: list[Node] = []
+    for c in candidates:
+        segments = (c.fqn or "").split(".")
+        if any(seg in tails for seg in segments[1:]):
+            hits.append(c)
+    return hits
+
+
+def _fallback_reference_candidates(
+    target_name: str,
+    by_name: dict[str, list[Node]],
+) -> list[Node]:
+    """Deterministic weak fallback for unresolved call-like refs.
+
+    If a dotted callee token doesn't resolve directly (e.g. pkg.mod.fn),
+    attempt tail-name matching and emit REFERENCES instead of dropping signal.
+    """
+    tail = _tail_name(target_name)
+    if not tail or tail == target_name:
+        return []
+    cands = by_name.get(tail, [])
+    if not cands:
+        return []
+    fns = [c for c in cands if c.label == "Function"]
+    return fns or cands
+
+
+def _normalize_event_name(name: str) -> str:
+    n = (name or "").strip().strip("\"'")
+    if not n:
+        return ""
+    n = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", ".", n)
+    n = n.lower()
+    n = re.sub(r"[_\-/:]+|\s+", ".", n)
+    n = re.sub(r"\.{2,}", ".", n)
+    return n.strip(".")
+
+
+def _normalize_policy_name(name: str) -> str:
+    n = (name or "").strip().strip("\"'")
+    if not n:
+        return ""
+    n = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", ".", n)
+    n = n.lower()
+    n = re.sub(r"[_\-/:]+|\s+", ".", n)
+    n = re.sub(r"\.{2,}", ".", n)
+    return n.strip(".")

@@ -5,7 +5,7 @@ import os
 import re
 import threading
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -28,7 +28,6 @@ from .config import (
     get_lowram_derive,
     get_resolve_workers,
     is_streaming_ingest_enabled,
-    is_streaming_writer_enabled,
 )
 from .dataflow import DataflowResult, run_dataflow
 from .discovery import FileInfo, discover, list_candidate_relpaths
@@ -209,13 +208,21 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # reassembly (which already loads every batch) so RefStream has an exact len
     # without an extra counting pass.
     stream_refs = spilling and is_streaming_ingest_enabled()
-    # Phase 2: same gate — persist extracted nodes to Neo4j before the
-    # memory-heavy resolve/derive tail and drop their bulky text fields from RAM.
-    stream_nodes = stream_refs
-    # A+B rewrite (§11): built on the streaming path. Steps 1+2+11: edges are
-    # flushed to Neo4j as they exist in final form and only SlimEdge stand-ins
-    # are retained in RAM — full Edge objects never accumulate for the whole
-    # repo. Two edge types must be DEFERRED (held full, written only at the
+    # Node early-write + bulky-field-drop: unconditional (MEMORY_ARCHITECTURE_
+    # PLAN.md item #1). Persisting extracted nodes to Neo4j immediately, then
+    # dropping fields nothing downstream ever reads again, has no structural
+    # dependency on disk-spill checkpointing — it only needs a reachable
+    # Neo4j, which this app always requires anyway. Previously gated behind
+    # stream_refs (disk-spill checkpointing) for no structural reason.
+    stream_nodes = True
+    # Edge early-write + SlimEdge conversion: unconditional (MEMORY_ARCHITECTURE_
+    # PLAN.md item #2). Edges are flushed to Neo4j as they exist in final form
+    # and only SlimEdge stand-ins are retained in RAM — full Edge objects
+    # never accumulate for the whole repo. Depends on stream_nodes (edge
+    # endpoints must already exist in Neo4j when edges are written) —
+    # satisfied unconditionally now that stream_nodes always runs first, same
+    # ordering guarantee as before, just no longer optional on either side.
+    # Two edge types must be DEFERRED (held full, written only at the
     # post-dataflow write point) because a later stage rewrites them in RAM and
     # an eager write would leave stale rows in Neo4j:
     #   - PASSES: dataflow drops every pre-dataflow PASSES edge and emits its
@@ -223,7 +230,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     #   - CALLS, only when SCIP may run: scip_python/scip_java replace whole
     #     languages' CALLS post-resolve. With scip off (the common/prod path)
     #     CALLS flush eagerly like everything else.
-    stream_writer = stream_nodes and is_streaming_writer_enabled()
+    stream_writer = True
     defer_edge_types = {"PASSES"} | ({"CALLS"} if scip else set())
     streamed_ref_count = 0
     if manifest is not None:
@@ -507,14 +514,17 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             on_stage("resolving", {"mode": "heuristic", "done": done, "total": total})
 
     # Phase 2 (streaming): persist the extracted nodes to Neo4j NOW — before the
-    # memory-heavy resolve/derive tail — then drop their bulky text fields from
-    # RAM (docstring/signature/param_types/return_type; none are read after
-    # extraction by resolve/scip/dataflow/derive). Neo4j is their source of truth
-    # from here. Wipe/delete must precede this early write. Nodes created later
-    # (resolve's synthesized nodes, package/module nodes) are tracked in
-    # late_nodes and written at the end; derived properties (roles, call metrics,
-    # module ownership, DFG) are patched onto the already-written nodes at the end
-    # via write_semantics, yielding the same final Neo4j state as one full write.
+    # memory-heavy resolve/derive tail — then drop their bulky/unused fields from
+    # RAM (none are read after extraction by resolve/scip/dataflow/derive — see
+    # MEMORY_ARCHITECTURE_PLAN.md item #1 for the full field-by-field audit;
+    # notably end_line/param_names/body_hash/repo are NOT cleared here — they
+    # ARE read downstream, by scip_resolver.py/dataflow.py/_derive_sql_links).
+    # Neo4j is their source of truth from here. Wipe/delete must precede this
+    # early write. Nodes created later (resolve's synthesized nodes, package
+    # nodes) are tracked in late_nodes and written at the end; derived
+    # properties (call metrics, DFG) are patched onto the already-written
+    # nodes at the end via write_semantics, yielding the same final Neo4j
+    # state as one full write.
     late_nodes: list[Node] = []
     if stream_nodes:
         store.bootstrap()
@@ -530,6 +540,19 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             n.signature = ""
             n.param_types = []
             n.return_type = ""
+            n.end_col = 0
+            n.display_name = ""
+            n.visibility = ""
+            n.modifiers = []
+            n.is_static = False
+            n.is_abstract = False
+            n.is_async = False
+            n.host = ""
+            n.loc = 0
+            n.cyclomatic = 0
+            n.branch_count = 0
+            n.loop_count = 0
+            n.is_lock = False
         if stream_writer:
             # Step 11: the structural (extraction-emitted) edges are in final
             # form already — flush them to Neo4j now and keep only SlimEdge
@@ -805,13 +828,15 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # slim.
     #
     # Why derive reads slim IN-RAM edges and NOT Neo4j (tried and reverted):
-    # MERGE dedups relationships, so a Cypher COUNT of CALLS silently changes
-    # fan_in/fan_out semantics (edge *multiplicity* — duplicate call sites —
-    # is real signal); and _synthesize_polymorphic_calls needs evidence_file/
-    # evidence_line while dataflow needs confidence off *existing* edges —
-    # none of which are in the golden edge-set hash (§7), so a Cypher rewrite
-    # could regress them without the oracle even noticing. The slim list
-    # preserves multiplicity and the full read-set (SLIM_EDGE_FIELDS) exactly.
+    # MERGE dedups relationships, so a Cypher rewrite of any pass that depends
+    # on edge *multiplicity* (duplicate call sites — this used to matter for
+    # fan_in/fan_out, since removed — see MEMORY_ARCHITECTURE_PLAN.md item #8)
+    # would silently diverge; and _synthesize_polymorphic_calls needs
+    # evidence_file/evidence_line while dataflow needs confidence off
+    # *existing* edges — none of which are in the golden edge-set hash (§7),
+    # so a Cypher rewrite could regress them without the oracle even
+    # noticing. The slim list preserves the full read-set (SLIM_EDGE_FIELDS)
+    # exactly.
     # Edges the derive passes create below are full Edge objects, tracked
     # separately in new_edges (via _add_edges) — only they still need writing
     # at the end.
@@ -836,8 +861,22 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
 
     # Deterministic OVERRIDES from the class hierarchy (Java + Python). SCIP gives
     # precise overrides when available for a language, so drop heuristic ones then.
+    # Shared node-id / CONTAINS-parent index, built once and passed into
+    # _derive_overrides instead of it rebuilding an O(nodes)/O(edges) index
+    # from scratch — on a 100M+-edge graph that was a redundant full pass for
+    # no behavior difference. Kept in sync with the (small) nodes/edges
+    # _build_package_tree adds below; _derive_overrides never reads past a
+    # File/Class ancestor so the update is behavior-preserving either way,
+    # just cheap insurance against that changing later.
+    _beat("deriving", "building shared node/parent index")
+    shared_by_id: dict[str, Node] = {n.id: n for n in all_nodes}
+    shared_parent_of: dict[str, str] = {}
+    for e in all_edges:
+        if e.type == "CONTAINS":
+            shared_parent_of[e.dst] = e.src
+
     _beat("deriving", "overrides from class hierarchy")
-    override_edges = _derive_overrides(all_nodes, all_edges)
+    override_edges = _derive_overrides(all_nodes, all_edges, shared_by_id, shared_parent_of)
     if scip_owns_python:
         override_edges = [e for e in override_edges if lang_of.get(e.src) != "python"]
     if scip_owns_java:
@@ -850,30 +889,17 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     if stream_nodes:
         late_nodes.extend(pkg_nodes)
     _add_edges(pkg_edges)
+    for n in pkg_nodes:
+        shared_by_id[n.id] = n
+    for e in pkg_edges:
+        if e.type == "CONTAINS":
+            shared_parent_of[e.dst] = e.src
 
-    _beat("deriving", "component roles")
-    role_diag = _classify_roles(all_nodes, all_edges)
-    _beat("deriving", "module ownership + USES aggregation")
-    mod_nodes, mod_edges, uses_edges = _derive_module_ownership_and_uses(all_nodes, all_edges, repo)
-    all_nodes.extend(mod_nodes)
-    if stream_nodes:
-        late_nodes.extend(mod_nodes)
-    _add_edges(mod_edges)
-    _add_edges(uses_edges)
-
-    # fan_in/fan_out count CALLS-edge *multiplicity* (duplicate call sites) — a
-    # slim-tuple list preserves that exactly (unlike the Cypher relationship
-    # count tried and reverted above). Stays in Python, unchanged, now reading
-    # the slim projection instead of full Edge objects.
-    _beat("deriving", "call metrics (fan_in/fan_out)")
-    _attach_call_metrics(all_nodes, all_edges)
-
-    # Synthesize polymorphic-dispatch CALLS edges after call metrics so they
-    # don't inflate direct-call fan_in/fan_out (used for role/blast-radius
-    # ranking), but before every downstream CALLS-based caller query. Reads
-    # evidence_file/evidence_line off existing CALLS edges — carried by the
-    # slim projection (SLIM_EDGE_FIELDS) even though it's outside the golden
-    # edge-set hash.
+    # Synthesize polymorphic-dispatch CALLS edges (reads the OVERRIDES edges
+    # just derived above) before every downstream CALLS-based caller query.
+    # Reads evidence_file/evidence_line off existing CALLS edges — carried by
+    # the slim projection (SLIM_EDGE_FIELDS) even though it's outside the
+    # golden edge-set hash.
     _beat("deriving", "polymorphic dispatch CALLS")
     _add_edges(_synthesize_polymorphic_calls(all_edges))
 
@@ -954,55 +980,37 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             db_counts=(0, 0),
             scip=scip_report,
             scip_java=scip_java_report,
-            roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
+            roles={},
             dfg=DataflowResult(stats=dfg_stats),
             stage_seconds=stage_seconds,
         )
 
     if on_stage:
         on_stage("writing_graph", {"nodes": len(all_nodes), "edges": len(all_edges)})
-    if stream_nodes:
-        # Extracted nodes were written (and their bulky fields dropped) before
-        # resolve, and wipe/delete already ran then. Write only the nodes created
-        # since (resolve's synthesized nodes + package/module), then patch the
-        # derived properties (roles, call metrics, module ownership, DFG) onto the
-        # already-written nodes. Net Neo4j state is identical to the full
-        # write_nodes(all_nodes) below, but the full node objects were never held
-        # for a second dict conversion here.
-        _beat("writing_graph", f"writing {len(late_nodes)} late node(s)")
-        store.write_nodes(late_nodes, on_batch=_write_beat("writing_graph", "late nodes written"))
-        _beat("writing_graph", "patching derived node properties")
-        store.write_semantics(_derived_semantics_rows(all_nodes))
-        if stream_writer:
-            # all_edges is a mix of SlimEdge (pre-derive, already durable in
-            # Neo4j from Step 1) and Edge (derive-added) by this point — only
-            # new_edges (the latter) are real Edge objects with .props(), and
-            # only they are new since Step 1's write. Writing all_edges here
-            # would both crash (SlimEdge has no .props()) and redundantly
-            # re-write millions of already-written edges.
-            _beat("writing_graph", f"writing {len(new_edges)} derived edge(s)")
-            store.write_edges(new_edges, on_batch=_write_beat("writing_graph", "derived edges written"))
-            _log.info(
-                "[graph_ingest][repo=%s] streaming writer: wrote %s newly-derived edge(s) "
-                "(pre-derive edges already durable in Neo4j from Step 1)",
-                repo, len(new_edges),
-            )
-        else:
-            store.write_edges(all_edges, on_batch=_write_beat("writing_graph", "edges written"))
-    else:
-        store.bootstrap()
-        if incremental:
-            # Only the files that actually changed (or were removed) can have
-            # stale nodes/edges left over from the last ingest — MERGE in
-            # write_nodes/write_edges below already updates in-place nodes for
-            # every unchanged file, so a full-namespace wipe would throw away
-            # work the extraction cache just avoided redoing.
-            stale_relpaths = sorted(set(changed_files or []) | set(deleted_files or []))
-            store.delete_files(repo, stale_relpaths)
-        elif wipe:
-            store.wipe(repo)
-        store.write_nodes(all_nodes, on_batch=_write_beat("writing_graph", "nodes written"))
-        store.write_edges(all_edges, on_batch=_write_beat("writing_graph", "edges written"))
+    # Extracted nodes were written (and their bulky fields dropped) before
+    # resolve, and wipe/delete already ran then. Write only the nodes created
+    # since (resolve's synthesized nodes + package/module), then patch the
+    # derived properties (roles, call metrics, module ownership, DFG) onto the
+    # already-written nodes. Net Neo4j state is identical to a full
+    # write_nodes(all_nodes), but the full node objects were never held for a
+    # second dict conversion here.
+    _beat("writing_graph", f"writing {len(late_nodes)} late node(s)")
+    store.write_nodes(late_nodes, on_batch=_write_beat("writing_graph", "late nodes written"))
+    _beat("writing_graph", "patching derived node properties")
+    store.write_semantics(_derived_semantics_rows(all_nodes))
+    # all_edges is a mix of SlimEdge (pre-derive, already durable in Neo4j
+    # from Step 1) and Edge (derive-added) by this point — only new_edges
+    # (the latter) are real Edge objects with .props(), and only they are new
+    # since Step 1's write. Writing all_edges here would both crash (SlimEdge
+    # has no .props()) and redundantly re-write millions of already-written
+    # edges.
+    _beat("writing_graph", f"writing {len(new_edges)} derived edge(s)")
+    store.write_edges(new_edges, on_batch=_write_beat("writing_graph", "derived edges written"))
+    _log.info(
+        "[graph_ingest][repo=%s] streaming writer: wrote %s newly-derived edge(s) "
+        "(pre-derive edges already durable in Neo4j from Step 1)",
+        repo, len(new_edges),
+    )
     _mark("writing_graph")
     _log.info("[graph_ingest][repo=%s] writing_graph: wrote %s nodes, %s edges to Neo4j", repo, len(all_nodes), len(all_edges))
 
@@ -1023,7 +1031,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         db_counts=store.counts(repo),
         scip=scip_report,
         scip_java=scip_java_report,
-        roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
+        roles={},
         dfg=DataflowResult(stats=dfg_stats),
         stage_seconds=stage_seconds,
     )
@@ -1075,25 +1083,6 @@ def _lowram_derive_and_write(
     all_nodes.extend(pkg_nodes)
     struct_edges.extend(pkg_edges)  # package CONTAINS
 
-    _beat("deriving", "component roles")
-    role_diag = _classify_roles(all_nodes, struct_edges)
-
-    # Module ownership + USES — iterates CONTAINS (RAM) + every base_dep_types
-    # edge (structural in RAM, CALLS/etc streamed from disk). Output is
-    # component/module-pair-bounded, kept in RAM.
-    _beat("deriving", "module ownership + USES aggregation")
-    mod_nodes, mod_edges, uses_edges = _derive_module_ownership_and_uses(
-        all_nodes, ChainedEdges(struct_edges, disk), repo,
-    )
-    all_nodes.extend(mod_nodes)
-    derived.extend(mod_edges)
-    derived.extend(uses_edges)
-
-    # Call metrics over the on-disk CALLS (pre-polymorphic — synthetic CALLS are
-    # added to `derived` after this, so they never inflate fan_in/fan_out).
-    _beat("deriving", "call metrics (fan_in/fan_out)")
-    _attach_call_metrics(all_nodes, disk)
-
     _beat("deriving", "polymorphic dispatch CALLS")
     derived.extend(streaming_polymorphic_calls(struct_edges, disk))
 
@@ -1140,7 +1129,7 @@ def _lowram_derive_and_write(
         db_counts=store.counts(repo),
         scip=ScipReport(),
         scip_java=ScipReport(),
-        roles={f"{role}:{source}": c for (role, source), c in role_diag.items()},
+        roles={},
         dfg=DataflowResult(stats=dfg_stats),
         stage_seconds=stage_seconds,
     )
@@ -1148,7 +1137,9 @@ def _lowram_derive_and_write(
 
 def _derived_semantics_rows(nodes: list[Node]) -> list[dict]:
     """Build write_semantics rows carrying only the fields the derive/dataflow
-    passes SET on nodes (component role, call metrics, module ownership, DFG).
+    passes SET on nodes (DFG). component_role/module_id are no longer derived
+    — see MEMORY_ARCHITECTURE_PLAN.md item #3; fan_in/fan_out/recursive are no
+    longer derived either — see item #8 (confirmed zero downstream consumers).
 
     Under streaming ingest the extracted nodes are written to Neo4j before those
     passes run, so their derived properties are patched on afterwards. Uses the
@@ -1158,13 +1149,6 @@ def _derived_semantics_rows(nodes: list[Node]) -> list[dict]:
     rows: list[dict] = []
     for n in nodes:
         props = _clean({
-            "component_role": n.component_role,
-            "role_source": n.role_source,
-            "role_confidence": n.role_confidence,
-            "module_id": n.module_id,
-            "fan_in": n.fan_in,
-            "fan_out": n.fan_out,
-            "recursive": n.recursive,
             "dfg_json": n.dfg_json,
             "dfg_returns_from_params": n.dfg_returns_from_params,
             "dfg_hash": n.dfg_hash,
@@ -1174,15 +1158,28 @@ def _derived_semantics_rows(nodes: list[Node]) -> list[dict]:
     return rows
 
 
-def _derive_overrides(nodes: list[Node], edges: list[Edge]) -> list[Edge]:
+def _derive_overrides(
+    nodes: list[Node], edges: list[Edge],
+    by_id: dict[str, Node] | None = None,
+    parent_of: dict[str, str] | None = None,
+) -> list[Edge]:
     """OVERRIDES from the resolved class hierarchy: a method overrides an
     ancestor method of the same name + arity (Java extends/implements, Python
-    inheritance). Confidence INFERRED — name+arity match, not type-precise."""
-    by_id = {n.id: n for n in nodes}
-    parent_of: dict[str, str] = {}
+    inheritance). Confidence INFERRED — name+arity match, not type-precise.
+
+    ``by_id``/``parent_of``: optional precomputed node-id index and CONTAINS
+    parent map, built once by index_repo's derive sequence and passed in
+    instead of this function rebuilding an identical O(nodes)/O(edges) index
+    from scratch. Falls back to building them locally when not provided (e.g.
+    the low-RAM streaming derive path, which doesn't share this index)."""
+    if by_id is None:
+        by_id = {n.id: n for n in nodes}
+    build_parent_of = parent_of is None
+    if build_parent_of:
+        parent_of = {}
     supers: dict[str, list[str]] = defaultdict(list)
     for e in edges:
-        if e.type == "CONTAINS":
+        if build_parent_of and e.type == "CONTAINS":
             parent_of[e.dst] = e.src
         elif e.type in ("EXTENDS", "IMPLEMENTS"):
             s, d = by_id.get(e.src), by_id.get(e.dst)
@@ -1307,13 +1304,25 @@ def _synthesize_polymorphic_calls(edges: list[Edge]) -> list[Edge]:
     if not overrides_by_ancestor:
         return []
 
-    existing_calls: set[tuple[str, str]] = {
-        (e.src, e.dst) for e in edges if e.type == "CALLS"
-    }
+    # The dedup check below only ever probes (caller.src, child) where child
+    # is a concrete override — so only CALLS edges landing on a concrete
+    # override can ever match. Previously this built `existing_calls` from
+    # *every* CALLS edge in the graph (100M+ on a large repo) just to guard
+    # against duplicates on this much smaller set of pairs. Narrowing it to
+    # calls-into-children only (bounded by calls-into-overrides, not total
+    # calls) and building it in the same pass as callers_by_ancestor — instead
+    # of two separate full scans — mirrors streaming_polymorphic_calls in
+    # lowram_derive.py (unit-tested byte-identical output; see test there).
+    children_set = {c for children in overrides_by_ancestor.values() for c in children}
     callers_by_ancestor: dict[str, list[Edge]] = defaultdict(list)
+    existing_into_children: set[tuple[str, str]] = set()
     for e in edges:
-        if e.type == "CALLS" and e.dst in overrides_by_ancestor:
+        if e.type != "CALLS":
+            continue
+        if e.dst in overrides_by_ancestor:
             callers_by_ancestor[e.dst].append(e)
+        if e.dst in children_set:
+            existing_into_children.add((e.src, e.dst))
 
     synthetic: list[Edge] = []
     for ancestor, children in overrides_by_ancestor.items():
@@ -1322,9 +1331,9 @@ def _synthesize_polymorphic_calls(edges: list[Edge]) -> list[Edge]:
             continue
         for child in children:
             for ce in caller_edges:
-                if (ce.src, child) in existing_calls:
+                if (ce.src, child) in existing_into_children:
                     continue
-                existing_calls.add((ce.src, child))
+                existing_into_children.add((ce.src, child))
                 synthetic.append(Edge(
                     "CALLS", ce.src, child,
                     confidence=Confidence.AMBIGUOUS.value,
@@ -1333,329 +1342,6 @@ def _synthesize_polymorphic_calls(edges: list[Edge]) -> list[Edge]:
                     evidence_file=ce.evidence_file, evidence_line=ce.evidence_line,
                 ))
     return synthetic
-
-
-def _attach_call_metrics(nodes: list[Node], edges: list[Edge]) -> None:
-    nodes_by_id = {n.id: n for n in nodes}
-    fan_out: dict[str, int] = {}
-    fan_in: dict[str, int] = {}
-    recursive: set[str] = set()
-
-    for e in edges:
-        if e.type != "CALLS":
-            continue
-        fan_out[e.src] = fan_out.get(e.src, 0) + 1
-        fan_in[e.dst] = fan_in.get(e.dst, 0) + 1
-        if e.src == e.dst:
-            recursive.add(e.src)
-
-    for node_id, n in nodes_by_id.items():
-        if n.label != "Function":
-            continue
-        n.fan_out = fan_out.get(node_id, 0)
-        n.fan_in = fan_in.get(node_id, 0)
-        n.recursive = node_id in recursive
-
-
-# Class component-role rules, highest precedence first. Each rule is
-# (match_kind, key, role, source, confidence):
-#   ann    -> annotation simple-name (lowercased) present on the class
-#   suffix -> class name ends with key
-#   pkg    -> key is a substring of the class's package
-# Edit this table to retune role classification — precedence is list order
-# (annotation > name suffix > package), the explicit mapping the design asked for.
-_CLASS_ROLE_RULES: list[tuple[str, str, str, str, str]] = [
-    ("ann", "restcontroller", "controller", "annotation", "HIGH"),
-    ("ann", "controller", "controller", "annotation", "HIGH"),
-    ("ann", "service", "service", "annotation", "HIGH"),
-    ("ann", "repository", "repository", "annotation", "HIGH"),
-    ("ann", "configuration", "config", "annotation", "HIGH"),
-    ("ann", "configurationproperties", "config", "annotation", "HIGH"),
-    ("ann", "entity", "entity", "annotation", "HIGH"),
-    ("suffix", "controller", "controller", "name_suffix", "MEDIUM"),
-    ("suffix", "service", "service", "name_suffix", "MEDIUM"),
-    ("suffix", "repository", "repository", "name_suffix", "MEDIUM"),
-    ("suffix", "dao", "repository", "name_suffix", "MEDIUM"),
-    ("suffix", "config", "config", "name_or_package", "MEDIUM"),
-    ("pkg", "config", "config", "name_or_package", "MEDIUM"),
-    ("suffix", "util", "util", "name_suffix", "LOW"),
-    ("suffix", "utils", "util", "name_suffix", "LOW"),
-    ("pkg", "controller", "controller", "package", "LOW"),
-    ("pkg", "service", "service", "package", "LOW"),
-    ("pkg", "repo", "repository", "package", "LOW"),
-    ("pkg", "repository", "repository", "package", "LOW"),
-]
-
-
-def _classify_roles(nodes: list[Node], edges: list[Edge]) -> Counter:
-    """Deterministic component-role tagging from annotations/name/package signals.
-
-    Returns a diagnostics counter keyed by (role, source) so role-assignment
-    quality is observable (e.g. how many roles came from HIGH-confidence
-    annotations vs LOW-confidence package fallbacks)."""
-    by_id = {n.id: n for n in nodes}
-    parent_of: dict[str, str] = {}
-    for e in edges:
-        if e.type == "CONTAINS":
-            parent_of[e.dst] = e.src
-
-    ann_by_src: dict[str, set[str]] = defaultdict(set)
-    exposes_src: set[str] = set()
-    for e in edges:
-        if e.type == "ANNOTATED_WITH":
-            dst = by_id.get(e.dst)
-            if dst and dst.label == "Annotation":
-                ann_by_src[e.src].add(dst.name.lower())
-        elif e.type == "EXPOSES":
-            exposes_src.add(e.src)
-
-    diag: Counter = Counter()
-
-    def assign(n: Node, role: str, source: str, confidence: str) -> None:
-        n.component_role = role
-        n.role_source = source
-        n.role_confidence = confidence
-        diag[(role, source)] += 1
-
-    for n in nodes:
-        if n.label != "Class":
-            continue
-        anns = ann_by_src.get(n.id, set())
-        name = (n.name or "").lower()
-        pkg = (n.package or "").lower()
-        for kind, key, role, source, conf in _CLASS_ROLE_RULES:
-            if (
-                (kind == "ann" and key in anns)
-                or (kind == "suffix" and name.endswith(key))
-                or (kind == "pkg" and key in pkg.split("."))
-            ):
-                assign(n, role, source, conf)
-                break
-
-    for n in nodes:
-        if n.label != "Function":
-            continue
-        if n.id in exposes_src:
-            assign(n, "endpoint_handler", "edge_exposes", "HIGH")
-            continue
-        cur = parent_of.get(n.id)
-        matched = False
-        while cur is not None:
-            p = by_id.get(cur)
-            if p is None:
-                break
-            if p.label == "Class" and p.component_role:
-                # A method on a Controller class is effectively an endpoint
-                # even without an explicit route decorator we recognize
-                # (inherited routing, class-based views, framework patterns
-                # our extractor doesn't parse yet) — fall back to
-                # endpoint_handler at lower confidence instead of leaving it
-                # tagged merely "controller" (which never seeds taint
-                # analysis, since that only starts from endpoint_handler
-                # roots).
-                if p.component_role == "controller":
-                    assign(n, "endpoint_handler", "owner_class_controller", "MEDIUM")
-                else:
-                    assign(n, p.component_role, "owner_class", "MEDIUM")
-                matched = True
-                break
-            cur = parent_of.get(cur)
-        if matched:
-            continue
-        # Leave component_role empty for module-level free functions with no
-        # classifiable owning class — downstream coalesces empty to "unknown".
-
-    return diag
-
-
-def _derive_module_ownership_and_uses(
-    nodes: list[Node],
-    edges: list[Edge],
-    repo: str,
-    module_root_depth: int = 1,
-    module_roots: tuple[str, ...] = (),
-) -> tuple[list[Node], list[Edge], list[Edge]]:
-    """Derive Module ownership and aggregate low-level deps into USES.
-
-    Output edges are additive and deterministic. Module boundaries are
-    configurable rather than hard-wired to the first package segment:
-
-      - ``module_roots``: explicit module-root prefixes (longest match wins),
-        e.g. ``("com.acme.billing", "com.acme.orders")`` to model real modules
-        instead of guessing. Matched against the node's package or file path.
-      - ``module_root_depth``: when no explicit root matches, how many leading
-        package/path segments form the module key (default 1 = first segment,
-        the original behaviour).
-
-    Component-level USES carry a ``cross_module`` / ``intra_module`` strategy tag
-    so boundary-crossing dependencies (the blast-radius signal) are queryable.
-    """
-    by_id = {n.id: n for n in nodes}
-    parent_of: dict[str, str] = {}
-    for e in edges:
-        if e.type == "CONTAINS":
-            parent_of[e.dst] = e.src
-
-    module_nodes: list[Node] = []
-    ownership_edges: list[Edge] = []
-    uses_edges: list[Edge] = []
-
-    seen_mod_nodes: set[str] = set()
-    seen_mod_edges: set[tuple[str, str]] = set()
-    # Only BELONGS_TO/USES keys are ever looked up in this set (guarding against
-    # pre-existing rows of the two types this pass creates) — building it over
-    # every edge type materialized ~8M 3-tuples (~1GB transient) on large graphs
-    # for lookups that can only match these two types.
-    existing_edge_keys: set[tuple[str, str, str]] = {
-        (e.type, e.src, e.dst) for e in edges if e.type in ("BELONGS_TO", "USES")
-    }
-
-    # Longest-prefix-first so a more specific root wins over a broader one.
-    roots = sorted(module_roots, key=len, reverse=True)
-
-    def module_key_for(n: Node) -> str:
-        if n.package:
-            segs = [s for s in n.package.split(".") if s]
-        elif n.file:
-            f = n.file.replace("\\", "/")
-            segs = [
-                p.replace(".py", "").replace(".java", "")
-                for p in f.split("/") if p
-            ]
-        else:
-            return ""
-        if not segs:
-            return ""
-        dotted = ".".join(segs)
-        for root in roots:
-            if dotted == root or dotted.startswith(root + "."):
-                return root
-        depth = max(1, module_root_depth)
-        return ".".join(segs[:depth])
-
-    allowed_owned_labels = {
-        "File", "Class", "Function", "Field", "Endpoint", "Event", "Policy", "Annotation",
-    }
-    for n in nodes:
-        if n.label not in allowed_owned_labels:
-            continue
-        mkey = module_key_for(n)
-        if not mkey:
-            continue
-        mid = make_id(repo, f"module:{mkey}", "module")
-        if mid not in seen_mod_nodes and mid not in by_id:
-            seen_mod_nodes.add(mid)
-            module_nodes.append(Node(
-                id=mid, label="Module", name=mkey, fqn=f"module:{mkey}",
-                repo=repo, kind="module", package=mkey,
-                extractor="derivation", confidence=Confidence.INFERRED.value,
-            ))
-        n.module_id = mid
-        k = (n.id, mid)
-        if k in seen_mod_edges or ("BELONGS_TO", n.id, mid) in existing_edge_keys:
-            continue
-        seen_mod_edges.add(k)
-        ownership_edges.append(Edge(
-            "BELONGS_TO", n.id, mid,
-            confidence=Confidence.INFERRED.value,
-            origin=Origin.DERIVED.value,
-            extractor="derivation",
-            strategy="module_from_package_or_path",
-            evidence_file=n.file,
-            evidence_line=n.start_line,
-        ))
-
-    # Re-index after appending derived modules.
-    by_id = {n.id: n for n in [*nodes, *module_nodes]}
-
-    # Memoized: called once per dependency edge (millions on large graphs) and
-    # most edges share endpoints; the walk is a pure function of the static
-    # parent_of/by_id maps, so caching per node id is behavior-identical.
-    _owner_cache: dict[str, str | None] = {}
-
-    def owner_component(node_id: str) -> str | None:
-        if node_id in _owner_cache:
-            return _owner_cache[node_id]
-        result = None
-        cur = node_id
-        while cur is not None:
-            n = by_id.get(cur)
-            if n is None:
-                break
-            if n.label in ("Class", "File", "Endpoint", "Module"):
-                result = cur
-                break
-            cur = parent_of.get(cur)
-        _owner_cache[node_id] = result
-        return result
-
-    base_dep_types = {
-        "CALLS", "PASSES", "READS", "WRITES", "IMPORTS", "INSTANTIATES",
-        "CALLS_API", "REFERENCES", "EMITS_EVENT", "CONSUMES_EVENT",
-        "REQUIRES_AUTH", "ENFORCES_POLICY", "EXTENDS", "IMPLEMENTS", "OVERRIDES",
-    }
-
-    comp_uses_support: dict[tuple[str, str], Edge] = {}
-    for e in edges:
-        if e.type not in base_dep_types:
-            continue
-        s = owner_component(e.src)
-        d = owner_component(e.dst)
-        if not s or not d or s == d:
-            continue
-        k = (s, d)
-        if k not in comp_uses_support:
-            comp_uses_support[k] = e
-
-    def module_of(node_id: str) -> str:
-        n = by_id.get(node_id)
-        if n is None:
-            return ""
-        return n.id if n.label == "Module" else n.module_id
-
-    for (s, d), support in comp_uses_support.items():
-        if ("USES", s, d) in existing_edge_keys:
-            continue
-        sm, dm = module_of(s), module_of(d)
-        boundary = "cross_module" if (sm and dm and sm != dm) else "intra_module"
-        uses_edges.append(Edge(
-            "USES", s, d,
-            confidence=Confidence.INFERRED.value,
-            origin=Origin.DERIVED.value,
-            extractor="derivation",
-            strategy=f"component_aggregate:{boundary}",
-            evidence_file=support.evidence_file,
-            evidence_line=support.evidence_line,
-            evidence_col=support.evidence_col,
-        ))
-        existing_edge_keys.add(("USES", s, d))
-
-    # Module-level USES from component USES ownership.
-    module_uses_pairs: set[tuple[str, str]] = set()
-    for e in uses_edges:
-        src_n = by_id.get(e.src)
-        dst_n = by_id.get(e.dst)
-        if src_n is None or dst_n is None:
-            continue
-        sm = src_n.module_id
-        dm = dst_n.module_id
-        if not sm or not dm or sm == dm:
-            continue
-        module_uses_pairs.add((sm, dm))
-
-    for sm, dm in module_uses_pairs:
-        if ("USES", sm, dm) in existing_edge_keys:
-            continue
-        uses_edges.append(Edge(
-            "USES", sm, dm,
-            confidence=Confidence.INFERRED.value,
-            origin=Origin.DERIVED.value,
-            extractor="derivation",
-            strategy="module_aggregate",
-        ))
-        existing_edge_keys.add(("USES", sm, dm))
-
-    return module_nodes, ownership_edges, uses_edges
 
 
 # SQL patterns that indicate a function reads from or writes to a table.

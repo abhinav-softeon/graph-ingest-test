@@ -111,11 +111,25 @@ def resolve(
     _t_index_start = time.monotonic()
     nodes_by_id: dict[str, Node] = {n.id: n for n in nodes}
 
+    def _class_package(n: Node) -> str:
+        fqn = n.fqn or ""
+        name = n.name or ""
+        if fqn == name or not fqn.endswith(f".{name}"):
+            return ""
+        return fqn[: -(len(name) + 1)]
+
     by_name: dict[str, list[Node]] = defaultdict(list)
     classes_by_name: dict[str, list[Node]] = defaultdict(list)
+    # Precomputed once per Class/Function node here, instead of recomputed via
+    # string-split/slice on every candidate on every ambiguous ref inside
+    # narrow_call/narrow_type/_narrow_classes_for_recv below. For a Class node
+    # this yields its package; for a Function/method node it yields the owning
+    # class's FQN (both call sites below feed it either kind).
+    class_package_by_id: dict[str, str] = {}
     for n in nodes:
         if n.label in ("Class", "Function"):
             by_name[n.name].append(n)
+            class_package_by_id[n.id] = _class_package(n)
         if n.label == "Class":
             classes_by_name[n.name].append(n)
 
@@ -152,13 +166,6 @@ def resolve(
     package_by_file: dict[str, str] = {
         n.file: (n.package or "") for n in nodes if n.label == "File" and n.file
     }
-
-    def _class_package(n: Node) -> str:
-        fqn = n.fqn or ""
-        name = n.name or ""
-        if fqn == name or not fqn.endswith(f".{name}"):
-            return ""
-        return fqn[: -(len(name) + 1)]
 
     # Endpoint index for CALLS_API matching. Exact key first; templated routes
     # (segments collapsed to `*`) matched segment-wise so a concrete caller path
@@ -240,12 +247,12 @@ def resolve(
             return qualified_hits
         src_pkg = package_by_file.get(src_file, "")
         if src_pkg:
-            same_pkg = [c for c in candidates if _class_package(c) == src_pkg]
+            same_pkg = [c for c in candidates if class_package_by_id.get(c.id, "") == src_pkg]
             if same_pkg:
                 return same_pkg
         wpkgs = wildcard_pkgs_by_file.get(src_file, set())
         if wpkgs:
-            wcard_hits = [c for c in candidates if _class_package(c) in wpkgs]
+            wcard_hits = [c for c in candidates if class_package_by_id.get(c.id, "") in wpkgs]
             if wcard_hits:
                 return wcard_hits
         imported = imports_by_file.get(src_file, set())
@@ -287,7 +294,7 @@ def resolve(
             # FQNs end in "....PathUtil.normalize" regardless of package, so
             # the loose match would hit both. Checking the method's OWNING
             # CLASS fqn against the imported fqn exactly closes that gap.
-            exact_owner_hits = [c for c in pool if _class_package(c) in imported_fqns]
+            exact_owner_hits = [c for c in pool if class_package_by_id.get(c.id, "") in imported_fqns]
             if exact_owner_hits:
                 return _apply_arity(ref, exact_owner_hits, "imports_qualified_exact")
             qualified_hits = _import_qualified_hits(pool, imported_fqns)
@@ -372,7 +379,7 @@ def resolve(
         # (3) Same-package auto-visibility (Java: no import needed).
         src_pkg = package_by_file.get(src_file, "") if src_file else ""
         if src_pkg:
-            same_pkg = [c for c in pool if _class_package(c) == src_pkg]
+            same_pkg = [c for c in pool if class_package_by_id.get(c.id, "") == src_pkg]
             if same_pkg:
                 return same_pkg, "same_package"
 
@@ -381,7 +388,7 @@ def resolve(
         if src_file:
             wpkgs = wildcard_pkgs_by_file.get(src_file, set())
             if wpkgs:
-                wcard_hits = [c for c in pool if _class_package(c) in wpkgs]
+                wcard_hits = [c for c in pool if class_package_by_id.get(c.id, "") in wpkgs]
                 if wcard_hits:
                     return wcard_hits, "imports_wildcard"
 
@@ -413,13 +420,14 @@ def resolve(
         # already being durable in Neo4j) was implemented here and REVERTED —
         # it silently lost derived edges. Resuming skips already-resolved refs,
         # so their edges exist only in Neo4j, not in the in-RAM edge list that
-        # dataflow and the derive passes consume; a resumed run produced fewer
-        # PASSES and USES edges than an uninterrupted one. Reloading them from
-        # Neo4j cannot fix it either: MERGE dedups relationships, so the
-        # multiplicity fan_in/fan_out depends on is unrecoverable (see §11's
-        # DO-NOT list). A sound resume must spill the slim edges to disk as
-        # resolve produces them and reload them before derive. Until then,
-        # resolve restarts from ref 0 — extraction resume is unaffected.
+        # dataflow and the derive passes (_derive_overrides,
+        # _synthesize_polymorphic_calls — both need real Edge objects, not
+        # MERGE-collapsed Neo4j relationships, e.g. for evidence_file/
+        # evidence_line) consume; a resumed run produced fewer PASSES edges
+        # than an uninterrupted one. A sound resume must spill the slim edges
+        # to disk as resolve produces them and reload them before derive.
+        # Until then, resolve restarts from ref 0 — extraction resume is
+        # unaffected.
         checkpoint_root = None
 
     resume_index = 0

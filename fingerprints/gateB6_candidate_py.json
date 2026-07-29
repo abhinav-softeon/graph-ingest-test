@@ -1,0 +1,136 @@
+{
+  "repo": "fixed_py",
+  "node_count_total": 692,
+  "node_counts_by_label": {
+    "Annotation": 3,
+    "Class": 24,
+    "Field": 275,
+    "File": 33,
+    "Function": 353,
+    "Package": 3,
+    "Repository": 1
+  },
+  "edge_count_total": 3139,
+  "edge_counts_by_type": {
+    "ANNOTATED_WITH": 18,
+    "CALLS": 685,
+    "CONTAINS": 688,
+    "DEFINES": 652,
+    "HAS_GENERIC": 63,
+    "HAS_TYPE": 25,
+    "OF_TYPE": 3,
+    "PASSES": 481,
+    "READS": 279,
+    "REFERENCES": 211,
+    "RETURNS": 12,
+    "THROWS": 2,
+    "WRITES": 20
+  },
+  "edge_set_hash": "781f71103d1037dbbdfa57bba59fafde",
+  "derived_props_hash": "02580fc4440f42a3d7d253ec62c8dfbf",
+  "coverage": {
+    "ANNOTATED_WITH": {
+      "total": 18,
+      "resolved": 18,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "CALLS": {
+      "total": 2300,
+      "resolved": 976,
+      "ambiguous": 3,
+      "unresolved": 0,
+      "external": 1321
+    },
+    "CATCHES": {
+      "total": 53,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 53
+    },
+    "EXTENDS": {
+      "total": 5,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 5
+    },
+    "HAS_GENERIC": {
+      "total": 237,
+      "resolved": 73,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 164
+    },
+    "HAS_TYPE": {
+      "total": 392,
+      "resolved": 25,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 367
+    },
+    "IMPORTS": {
+      "total": 175,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 175
+    },
+    "OF_TYPE": {
+      "total": 158,
+      "resolved": 3,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 155
+    },
+    "READS": {
+      "total": 351,
+      "resolved": 351,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "REFERENCES": {
+      "total": 423,
+      "resolved": 393,
+      "ambiguous": 30,
+      "unresolved": 0,
+      "external": 0
+    },
+    "RETURNS": {
+      "total": 198,
+      "resolved": 12,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 186
+    },
+    "THROWS": {
+      "total": 10,
+      "resolved": 2,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 8
+    },
+    "WRITES": {
+      "total": 21,
+      "resolved": 21,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    }
+  },
+  "_timing": {
+    "seconds": 3.3410534858703613,
+    "stage_seconds": {
+      "discovering": 0.034,
+      "graph_parsing": 0.487,
+      "resolving": 2.074,
+      "scip_python": 0.001,
+      "scip_java": 0.0,
+      "deriving": 0.606,
+      "writing_graph": 0.137
+    }
+  }
+}

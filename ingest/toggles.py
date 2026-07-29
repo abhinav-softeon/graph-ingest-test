@@ -25,7 +25,6 @@ def apply_ingestion_toggles(
     checkpointing: bool = False,
     checkpoint_root: Optional[str] = None,
     streaming_ingest: bool = False,
-    streaming_writer: bool = False,
     scip: bool = False,
     extract_cache: bool = True,
     extract_cache_dir: Optional[str] = None,
@@ -36,11 +35,18 @@ def apply_ingestion_toggles(
 ) -> None:
     """Set every GRAPH_* env var this app exposes from plain Python values.
 
-    Streaming ingest/writer are nested under checkpointing on purpose:
-    pipeline.py's streaming paths require disk-spill (``spilling`` = a
-    checkpoint root being set) before they can activate at all, so passing
+    Streaming ingest is nested under checkpointing on purpose: its ref-
+    streaming-from-disk half requires disk-spill (``spilling`` = a checkpoint
+    root being set) before it can activate at all, so passing
     streaming_ingest=True with checkpointing=False here is a no-op rather
-    than a silent contradiction.
+    than a silent contradiction. (Its other half — resolving against a slim
+    node projection — doesn't structurally need checkpointing, but is kept
+    under the same toggle/env var for a single on/off switch rather than a
+    second one for a minor sub-behavior.)
+
+    Node/edge early-write and slimming (formerly GRAPH_STREAMING_WRITER) are
+    unconditional in pipeline.py now (MEMORY_ARCHITECTURE_PLAN.md item #2) —
+    there is no toggle for them anymore.
     """
     os.environ["GRAPH_EXTRACT_BATCH_SIZE"] = str(extract_batch_size or 2000) if chunking else str(_RAW_BATCH_SIZE_SENTINEL)
 
@@ -52,7 +58,6 @@ def apply_ingestion_toggles(
         os.environ["GRAPH_CHECKPOINT_ROOT"] = ""
 
     os.environ["GRAPH_STREAMING_INGEST"] = "true" if (checkpointing and streaming_ingest) else "false"
-    os.environ["GRAPH_STREAMING_WRITER"] = "true" if (checkpointing and streaming_ingest and streaming_writer) else "false"
 
     os.environ["GRAPH_SCIP_ENABLED"] = "true" if scip else "false"
 

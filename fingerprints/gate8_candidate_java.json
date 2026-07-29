@@ -1,0 +1,132 @@
+{
+  "repo": "fixed_java",
+  "node_count_total": 41,
+  "node_counts_by_label": {
+    "Annotation": 3,
+    "Class": 7,
+    "Endpoint": 1,
+    "Field": 2,
+    "File": 7,
+    "Function": 13,
+    "Package": 6,
+    "Repository": 1,
+    "Table": 1
+  },
+  "edge_count_total": 89,
+  "edge_counts_by_type": {
+    "ANNOTATED_WITH": 4,
+    "CALLS": 8,
+    "CONTAINS": 35,
+    "DEFINES": 22,
+    "EXPOSES": 1,
+    "EXTENDS": 2,
+    "HAS_TYPE": 1,
+    "IMPLEMENTS": 1,
+    "IMPORTS": 4,
+    "INSTANTIATES": 2,
+    "OF_TYPE": 1,
+    "OVERRIDES": 5,
+    "READS": 1,
+    "WRITES": 2
+  },
+  "edge_set_hash": "d232d2745aa9fd5dc71ff5f360d89b6c",
+  "derived_props_hash": "9bf272f1e9e242b1baebe564a69ae865",
+  "coverage": {
+    "ANNOTATED_WITH": {
+      "total": 4,
+      "resolved": 4,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "AUTOWIRED": {
+      "total": 3,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 3
+    },
+    "CALLS": {
+      "total": 10,
+      "resolved": 5,
+      "ambiguous": 1,
+      "unresolved": 0,
+      "external": 4
+    },
+    "EXTENDS": {
+      "total": 2,
+      "resolved": 2,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "HAS_TYPE": {
+      "total": 7,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 6
+    },
+    "IMPLEMENTS": {
+      "total": 1,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "IMPORTS": {
+      "total": 9,
+      "resolved": 4,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 5
+    },
+    "INSTANTIATES": {
+      "total": 2,
+      "resolved": 2,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    },
+    "OF_TYPE": {
+      "total": 2,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 1
+    },
+    "RETURNS": {
+      "total": 8,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 8
+    },
+    "THROWS": {
+      "total": 2,
+      "resolved": 0,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 2
+    },
+    "WRITES": {
+      "total": 1,
+      "resolved": 1,
+      "ambiguous": 0,
+      "unresolved": 0,
+      "external": 0
+    }
+  },
+  "_timing": {
+    "seconds": 7.215565919876099,
+    "stage_seconds": {
+      "discovering": 0.101,
+      "graph_parsing": 0.779,
+      "resolving": 5.842,
+      "scip_python": 0.0,
+      "scip_java": 0.0,
+      "deriving": 0.154,
+      "writing_graph": 0.338
+    }
+  }
+}

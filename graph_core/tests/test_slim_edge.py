@@ -36,9 +36,6 @@ _SLIM_READERS: dict[str, set[str] | None] = {
     "pipeline.py": {
         "_derive_overrides",
         "_synthesize_polymorphic_calls",
-        "_attach_call_metrics",
-        "_classify_roles",
-        "_derive_module_ownership_and_uses",
     },
     "resolver.py": None,
     "dataflow.py": None,

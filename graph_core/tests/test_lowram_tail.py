@@ -1,8 +1,9 @@
 """End-to-end smoke + equivalence test for the low-RAM derive tail
 (_lowram_derive_and_write), against a fake store so no Neo4j is needed.
 
-Verifies the orchestration runs and that its node metrics + edge set match
-running the in-RAM derive functions on the same graph.
+Verifies the orchestration runs and that its derived edges (OVERRIDES,
+polymorphic-dispatch CALLS) match running the in-RAM derive functions on the
+same graph.
 """
 from __future__ import annotations
 
@@ -10,10 +11,7 @@ import tempfile
 
 from graph_core.models import Confidence, Edge, Node, Origin
 from graph_core.lowram_derive import DiskEdgeStore
-from graph_core.pipeline import (
-    _attach_call_metrics,
-    _lowram_derive_and_write,
-)
+from graph_core.pipeline import _lowram_derive_and_write
 
 
 class FakeStore:
@@ -89,11 +87,6 @@ def _key(e):
 def test_lowram_tail_runs_and_matches_inram_metrics():
     nodes, structural, calls = _build_graph()
 
-    # expected fan_in/fan_out from the in-RAM function over the full edge list
-    exp_nodes = _clone_nodes(nodes)
-    _attach_call_metrics(exp_nodes, structural + calls)
-    exp_fan = {n.id: (n.fan_in, n.fan_out, n.recursive) for n in exp_nodes}
-
     # run the low-RAM tail
     run_nodes = _clone_nodes(nodes)
     struct_ram = [e for e in structural]  # mutable copy (tail extends it)
@@ -107,22 +100,17 @@ def test_lowram_tail_runs_and_matches_inram_metrics():
             on_stage=None, _beat=_beat, _mark=_mark, _write_beat=_write_beat,
         )
 
-    # 1) fan metrics identical to the in-RAM path
-    run_fan = {n.id: (n.fan_in, n.fan_out, n.recursive) for n in run_nodes if n.label == "Function"}
-    for nid, fan in run_fan.items():
-        assert fan == exp_fan[nid], (nid, fan, exp_fan[nid])
-
-    # 2) counts add up and store received exactly result.edges edges
+    # 1) counts add up and store received exactly result.edges edges
     assert result.edges == len(store.edges), (result.edges, len(store.edges))
     assert result.nodes == len(store.nodes)
 
-    # 3) OVERRIDES was derived (Dog.speak overrides Animal.speak)
+    # 2) OVERRIDES was derived (Dog.speak overrides Animal.speak)
     assert ("OVERRIDES", "Dog.speak", "Animal.speak") in {_key(e) for e in store.edges}
 
-    # 4) polymorphic synthesis: caller of Animal.speak becomes caller of Dog.speak
+    # 3) polymorphic synthesis: caller of Animal.speak becomes caller of Dog.speak
     assert ("CALLS", "Animal.wrangle", "Dog.speak") in {_key(e) for e in store.edges}
 
-    # 5) PASSES from extraction were dropped and only dataflow's (0 here) remain
+    # 4) PASSES from extraction were dropped and only dataflow's (0 here) remain
     assert result.validation["ok"] is True or "dangling" not in "".join(result.validation.get("errors", []))
 
 

@@ -85,9 +85,6 @@ class Node:
     cyclomatic: int = 0
     branch_count: int = 0
     loop_count: int = 0
-    fan_in: int = 0
-    fan_out: int = 0
-    recursive: bool = False
     # derived architecture metadata
     component_role: str = ""          # controller|service|repository|entity|config|util|...
     role_source: str = ""             # annotation|name_suffix|package|fallback
@@ -138,9 +135,6 @@ class Node:
             "cyclomatic": self.cyclomatic,
             "branch_count": self.branch_count,
             "loop_count": self.loop_count,
-            "fan_in": self.fan_in,
-            "fan_out": self.fan_out,
-            "recursive": self.recursive,
             "component_role": self.component_role,
             "role_source": self.role_source,
             "role_confidence": self.role_confidence,
@@ -274,11 +268,11 @@ class Edge:
 # ever set on NEWLY constructed edges, never read back off an existing one —
 # and by the time a SlimEdge replaces the full object (after its Neo4j write),
 # they're already durable there. Notably evidence_file/evidence_line/
-# evidence_col ARE needed (by _synthesize_polymorphic_calls and
-# _derive_module_ownership_and_uses) and `confidence` IS needed (dataflow.py's
-# calls_conf lookup for PASSES edges) despite none of them being part of the
-# golden edge-set hash in §7 — a naive (type, src, dst)-only projection would
-# have silently dropped them without the regression oracle noticing.
+# evidence_col ARE needed (by _synthesize_polymorphic_calls) and `confidence`
+# IS needed (dataflow.py's calls_conf lookup for PASSES edges) despite none
+# of them being part of the golden edge-set hash in §7 — a naive
+# (type, src, dst)-only projection would have silently dropped them without
+# the regression oracle noticing.
 SLIM_EDGE_FIELDS: tuple[str, ...] = (
     "type", "src", "dst", "evidence_file", "evidence_line", "evidence_col", "confidence",
 )

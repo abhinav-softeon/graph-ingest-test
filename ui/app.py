@@ -153,14 +153,32 @@ with st.sidebar:
 
     checkpointing = st.checkbox("Disk-spill checkpointing", value=False)
     checkpoint_root = st.text_input("Checkpoint dir", value="./.graph_checkpoints", disabled=not checkpointing)
-    streaming_ingest = st.checkbox("Streaming ingest (needs checkpointing)", value=False, disabled=not checkpointing)
-    streaming_writer = st.checkbox("Streaming writer (needs streaming ingest)", value=False, disabled=not (checkpointing and streaming_ingest))
+    streaming_ingest = st.checkbox(
+        "Streaming ingest (needs checkpointing)", value=False, disabled=not checkpointing,
+        help="Resolve against a slim node projection and stream refs from disk instead of "
+             "holding the whole ref list in RAM. Node/edge early-write to Neo4j and slimming "
+             "happen unconditionally on every run now — there's no separate toggle for that "
+             "anymore (MEMORY_ARCHITECTURE_PLAN.md items #1/#2).",
+    )
 
     st.divider()
     st.header("Optional subsystems")
     scip = st.checkbox("SCIP precise resolution", value=False)
     extract_cache = st.checkbox("Local extract cache", value=True)
     extract_cache_dir = st.text_input("Extract cache dir", value="./.cache/graph_extract_cache", disabled=not extract_cache)
+
+    from graph_core.config import compiled_hotpath_status
+    _hotpath = compiled_hotpath_status()
+    st.checkbox(
+        "Compiled hot-path active (resolver.py)", value=_hotpath["resolver"], disabled=True,
+        help="Read-only status, not a switch: whether resolver.py loaded as a compiled "
+             "Cython extension (faster resolve()) or plain interpreted Python. Built via "
+             "setup_cython.py — see its docstring. Same algorithm/memory either way.",
+    )
+    st.checkbox(
+        "Compiled hot-path active (pipeline.py)", value=_hotpath["pipeline"], disabled=True,
+        help="Read-only status for pipeline.py (the derive passes) — see above.",
+    )
 
     st.divider()
     st.header("Concurrency (advanced)")
@@ -189,8 +207,10 @@ with st.sidebar:
         "Low-RAM derive (spill edges to disk)", value=False,
         help="Sinks the bulk edges (CALLS etc.) to disk during resolve and streams them "
              "through derive, so 100M+ edges never sit in RAM. Trades speed (extra disk I/O) "
-             "for much lower RAM. Requires streaming ingest/writer OFF and SCIP OFF. "
-             "NEW/experimental — validate node+edge counts on your first run.",
+             "for much lower RAM. Requires SCIP OFF. "
+             "CURRENTLY BROKEN: since node/edge early-write became unconditional, this always "
+             "raises RuntimeError immediately instead of running (a known, deferred issue — "
+             "see MEMORY_ARCHITECTURE_PLAN.md item #5). Don't enable until that's fixed.",
     )
     edge_spill_dir = st.text_input(
         "Edge spill dir", value="./.graph_edge_spill", disabled=not lowram_derive,
@@ -264,7 +284,6 @@ if run_btn:
             checkpointing=checkpointing,
             checkpoint_root=checkpoint_root,
             streaming_ingest=streaming_ingest,
-            streaming_writer=streaming_writer,
             scip=scip,
             extract_cache=extract_cache,
             extract_cache_dir=extract_cache_dir,

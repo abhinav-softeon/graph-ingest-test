@@ -1,10 +1,10 @@
 """Option B — DERIVE-IN-DATABASE reference (Cypher).  ⚠️ DORMANT / UNVERIFIED.
 
-An alternative to computing the derived layer (fan_in/fan_out, OVERRIDES,
-polymorphic CALLS, USES) in Python: write only the BASE edges (extracted +
-resolved) to Neo4j/Aura, then compute the derived layer with Cypher *inside the
-database*. This keeps the ingest client's RAM ~0 for the derive step — the DB
-holds and aggregates the 100M+ edges, not your process.
+An alternative to computing the derived layer (OVERRIDES, polymorphic CALLS)
+in Python: write only the BASE edges (extracted + resolved) to Neo4j/Aura,
+then compute the derived layer with Cypher *inside the database*. This keeps
+the ingest client's RAM ~0 for the derive step — the DB holds and aggregates
+the 100M+ edges, not your process.
 
 Nothing in the pipeline imports this module. It is a starting template you can
 wire in later (e.g. from index_repo, after a base-edge write) — NOT a validated
@@ -15,13 +15,14 @@ native `CALL { } IN TRANSACTIONS`, no APOC required).
 
 KNOWN SEMANTIC DIFFERENCES vs the Python derive (why this is "reference", not
 "equivalent"):
-  * fan_in/fan_out: Cypher `count()` counts MERGE-collapsed relationships, so it
-    is the number of DISTINCT callers/callees, NOT call-site multiplicity. The
-    Python path counts multiplicity. If you rely on multiplicity, keep fan
-    metrics in Python.
-  * USES aggregation / owner-component walks and the polymorphic fan-out guard
-    are non-trivial to express faithfully in Cypher — the versions below are
-    simplified and will not match the Python edge-set hash. Validate before use.
+  * The polymorphic fan-out guard is non-trivial to express faithfully in
+    Cypher — the version below is simplified and will not match the Python
+    edge-set hash. Validate before use.
+  * (fan_in/fan_out was removed entirely, not migrated — MEMORY_ARCHITECTURE_
+    PLAN.md item #8 confirmed zero downstream consumers, so there was no need
+    to compute it anywhere, Python or Cypher. `attach_call_metrics_cypher`,
+    which used to live in this file, is gone along with pipeline.
+    _attach_call_metrics.)
 
 Each function takes a GraphStore (see graph_core.store) and a repo namespace,
 and runs server-side. Call them AFTER the base edges are in the DB.
@@ -29,33 +30,6 @@ and runs server-side. Call them AFTER the base edges are in the DB.
 from __future__ import annotations
 
 # from .store import GraphStore  # uncomment when wiring in
-
-
-def attach_call_metrics_cypher(store, repo: str) -> None:
-    """fan_in / fan_out / recursive on Function nodes, computed in the DB.
-
-    CAVEAT: counts distinct relationships (MERGE-collapsed), not call-site
-    multiplicity. Batched so it never builds one giant transaction."""
-    store._run(
-        """
-        MATCH (n:CodeNode {repo:$repo})
-        WHERE n.label = 'Function'
-        CALL (n) {
-            OPTIONAL MATCH (n)-[co:CALLS]->()
-            OPTIONAL MATCH (n)<-[ci:CALLS]-()
-            SET n.fan_out = count(DISTINCT co),
-                n.fan_in  = count(DISTINCT ci)
-        } IN TRANSACTIONS OF 5000 ROWS
-        """,
-        repo=repo,
-    )
-    store._run(
-        """
-        MATCH (n:CodeNode {repo:$repo})-[:CALLS]->(n)
-        CALL (n) { SET n.recursive = true } IN TRANSACTIONS OF 5000 ROWS
-        """,
-        repo=repo,
-    )
 
 
 def derive_overrides_cypher(store, repo: str) -> None:

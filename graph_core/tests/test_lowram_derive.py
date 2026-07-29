@@ -11,10 +11,9 @@ import random
 import tempfile
 
 from graph_core.models import Confidence, Edge, Node, Origin
-from graph_core.pipeline import _attach_call_metrics, _synthesize_polymorphic_calls
+from graph_core.pipeline import _synthesize_polymorphic_calls
 from graph_core.lowram_derive import (
     DiskEdgeStore,
-    streaming_call_metrics,
     streaming_polymorphic_calls,
 )
 
@@ -47,31 +46,6 @@ def test_disk_edge_store_roundtrip():
         # shard-by-shard covers everything exactly once
         via_shards = [e for shard in store.shards() for e in shard]
         assert [_edge_key(e) for e in via_shards] == [_edge_key(e) for e in edges]
-
-
-def test_call_metrics_equivalence():
-    r = _rng()
-    nodes = [_fn(i) for i in range(60)]
-    edges = []
-    for i in range(4000):
-        s, d = r.randint(0, 59), r.randint(0, 59)
-        edges.append(Edge("CALLS", f"n{s}", f"n{d}", evidence_line=i))
-    # a few non-CALLS to ensure they're ignored identically
-    edges += [Edge("CONTAINS", "n0", f"n{i}") for i in range(5)]
-
-    # in-RAM original
-    nodes_a = [_fn(i) for i in range(60)]
-    _attach_call_metrics(nodes_a, edges)
-
-    # streamed, over a DiskEdgeStore
-    nodes_b = [_fn(i) for i in range(60)]
-    with tempfile.TemporaryDirectory() as dd:
-        store = DiskEdgeStore(dd, shard_size=137)
-        store.extend(edges)
-        streaming_call_metrics(nodes_b, store)
-
-    for a, b in zip(nodes_a, nodes_b):
-        assert (a.fan_in, a.fan_out, a.recursive) == (b.fan_in, b.fan_out, b.recursive), a.id
 
 
 def _poly_fixture():

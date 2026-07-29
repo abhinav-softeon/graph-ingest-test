@@ -98,28 +98,25 @@ def checkpoint_root() -> str | None:
 
 
 def is_streaming_ingest_enabled() -> bool:
-    """Master switch for the memory-bounded streaming ingest (slim symbol index +
-    chunked ref resolution + stream to Neo4j — see TIER3_MEMORY_PLAN.md).
-
-    Default OFF: until every phase is green against the regression oracle
-    (graph_fingerprint.py), ingestion uses the original whole-graph-in-memory
-    path unchanged. Opt in with GRAPH_STREAMING_INGEST=1/true."""
+    """Switch for resolving against a slim (id/name/fqn-only) node projection
+    instead of full Node objects, and — when checkpointing is also enabled
+    (GRAPH_CHECKPOINT_ROOT) — streaming refs from disk one batch at a time
+    instead of holding the whole ref list in RAM (see TIER3_MEMORY_PLAN.md).
+    Node/edge early-write and slimming themselves are unconditional now
+    (MEMORY_ARCHITECTURE_PLAN.md items #1/#2) and do not depend on this flag.
+    Default OFF. Opt in with GRAPH_STREAMING_INGEST=1/true."""
     env = os.environ.get("GRAPH_STREAMING_INGEST", "").strip().lower()
     return env in ("1", "true", "yes", "on")
 
 
 def is_streaming_writer_enabled() -> bool:
-    """A+B rewrite master switch (see TIER3_MEMORY_PLAN.md §11): stream edges to
-    Neo4j and progressively migrate the derive passes to query the DB, so peak
-    memory stops scaling with edge count. Built incrementally on top of
-    GRAPH_STREAMING_INGEST; default OFF until the whole rewrite is validated
-    end-to-end against the fingerprint oracle. Opt in with GRAPH_STREAMING_WRITER=1.
-
-    Enables (TIER3_MEMORY_PLAN.md §11 Steps 1+2+11): eager edge flush to Neo4j
-    (structural edges pre-resolve, resolved edges in ~10k batches via the
-    resolve sink, deferred PASSES/CALLS post-dataflow) with only SlimEdge
-    stand-ins retained in RAM, and derive passes running over the slim
-    projection — full Edge objects never accumulate for the whole repo."""
+    """Historical GRAPH_STREAMING_WRITER flag. The behavior it used to gate —
+    eager edge flush to Neo4j with only SlimEdge stand-ins retained in RAM —
+    is now unconditional in pipeline.py (MEMORY_ARCHITECTURE_PLAN.md item #2),
+    so this function is no longer read by the pipeline. Kept only because
+    ingest/build.py still reports GRAPH_STREAMING_WRITER's env value in its
+    diagnostic status dict; the env var itself no longer has any effect on
+    ingestion behavior."""
     env = os.environ.get("GRAPH_STREAMING_WRITER", "").strip().lower()
     return env in ("1", "true", "yes", "on")
 
@@ -168,6 +165,30 @@ def get_extract_cache_dir() -> str:
     """Local filesystem directory for the extraction cache. Standalone app has
     no S3 dependency — replaces the original get_extract_cache_prefix()."""
     return os.environ.get("GRAPH_EXTRACT_CACHE_DIR", "").strip() or os.path.join(".cache", "graph_extract_cache")
+
+
+def compiled_hotpath_status() -> dict[str, bool]:
+    """Whether resolver.py/pipeline.py are running as compiled Cython
+    extensions (built via setup_cython.py, see its docstring) rather than
+    interpreted Python. Not a runtime switch — compiling is a build-time
+    step (a native C compiler is required; this project's Dockerfile already
+    has build-essential) — this only *detects and reports* what's actually
+    loaded, by checking whether each module's __file__ is an extension
+    (.so/.pyd) or a plain .py source file. CPython's import machinery always
+    prefers a compiled extension over a same-named .py file when both are
+    present, so the only real "toggle" is whether setup_cython.py was run
+    for a given environment."""
+    import graph_core.pipeline as _pipeline
+    import graph_core.resolver as _resolver
+
+    def _is_compiled(mod) -> bool:
+        f = getattr(mod, "__file__", "") or ""
+        return f.endswith((".so", ".pyd"))
+
+    return {
+        "resolver": _is_compiled(_resolver),
+        "pipeline": _is_compiled(_pipeline),
+    }
 
 
 def is_scip_enabled() -> bool:
@@ -253,7 +274,16 @@ def get_lowram_derive() -> bool:
     """Opt-in low-RAM derive path (GRAPH_LOWRAM_DERIVE). When on, the pre-derive
     edge set is spilled to disk (DiskEdgeStore) and the derive passes stream it
     instead of holding all edges (100M+) in RAM. Off by default — the proven
-    in-RAM path is unchanged. See graph_core/lowram_derive.py."""
+    in-RAM path is unchanged. See graph_core/lowram_derive.py.
+
+    NOTE: since the streaming writer (stream_writer) became unconditional
+    (MEMORY_ARCHITECTURE_PLAN.md item #2), pipeline.py's own guard —
+    `if lowram: if stream_writer or is_streaming_ingest_enabled(): raise
+    RuntimeError(...)` — makes this path unreachable: setting
+    GRAPH_LOWRAM_DERIVE=1 now always raises immediately instead of running.
+    Left as-is deliberately (item #5, deferred until real-corpus RAM is
+    measured against items #1/#2/#3/#6) — fix the guard only if measurement
+    shows this safety valve is still needed."""
     return os.environ.get("GRAPH_LOWRAM_DERIVE", "").strip().lower() in ("1", "true", "yes", "on")
 
 

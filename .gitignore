@@ -11,3 +11,10 @@ graph.joblib
 *.joblib
 .cache/
 .graph_checkpoints/
+
+# Cython build output (setup_cython.py) — platform-specific, rebuilt per
+# environment (e.g. inside Docker), never committed.
+*.so
+*.pyd
+graph_core/*.c
+/build/

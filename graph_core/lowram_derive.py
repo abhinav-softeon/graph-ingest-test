@@ -8,14 +8,15 @@ instead:
   - ``DiskEdgeStore``: an append-only, re-iterable edge container backed by pickle
     shards on disk. Drop-in for the derive passes' ``for e in edges`` (iteration +
     ``len``), but NOT indexable. Keeps ~one shard-buffer in RAM.
-  - ``streaming_call_metrics`` / ``streaming_polymorphic_calls``: the two derive
-    steps whose in-RAM versions build edge-count-sized structures; rewritten to
-    stream, and unit-tested to be byte-identical to the originals in pipeline.py.
+  - ``streaming_polymorphic_calls``: the one remaining derive step whose in-RAM
+    version builds an edge-count-sized structure; rewritten to stream, and
+    unit-tested to be byte-identical to the original in pipeline.py.
+    (``streaming_call_metrics`` — fan_in/fan_out/recursive — was removed along
+    with pipeline._attach_call_metrics; see MEMORY_ARCHITECTURE_PLAN.md item #8.)
 
-The other derive passes (_derive_overrides, _classify_roles,
-_derive_module_ownership_and_uses, _derive_sql_links, validate_graph) build only
-O(nodes)/O(component-pairs) state, so they run unchanged over a streamed edge
-source — no reimplementation, no correctness risk.
+The other derive passes (_derive_overrides, _derive_sql_links, validate_graph)
+build only O(nodes)/O(component-pairs) state, so they run unchanged over a
+streamed edge source — no reimplementation, no correctness risk.
 
 Wiring this into index_repo (spill after dataflow, stream through derive, write
 shard-by-shard) is gated behind config.get_lowram_derive(); the proven in-RAM path
@@ -28,7 +29,7 @@ import pickle
 from collections import defaultdict
 from typing import Callable, Iterator
 
-from .models import Confidence, Edge, Node, Origin
+from .models import Confidence, Edge, Origin
 
 
 class DiskEdgeStore:
@@ -104,34 +105,6 @@ class ChainedEdges:
 
     def __len__(self) -> int:
         return sum(len(s) for s in self._sources)
-
-
-def streaming_call_metrics(nodes: list[Node], edges) -> None:
-    """Streaming equivalent of pipeline._attach_call_metrics.
-
-    Counts CALLS-edge multiplicity into fan_out/fan_in over a single streamed
-    pass (``edges`` may be a DiskEdgeStore). Sets fan_out/fan_in/recursive on
-    Function nodes. Behaviour identical to the in-RAM original.
-    """
-    nodes_by_id = {n.id: n for n in nodes}
-    fan_out: dict[str, int] = {}
-    fan_in: dict[str, int] = {}
-    recursive: set[str] = set()
-
-    for e in edges:
-        if e.type != "CALLS":
-            continue
-        fan_out[e.src] = fan_out.get(e.src, 0) + 1
-        fan_in[e.dst] = fan_in.get(e.dst, 0) + 1
-        if e.src == e.dst:
-            recursive.add(e.src)
-
-    for node_id, n in nodes_by_id.items():
-        if n.label != "Function":
-            continue
-        n.fan_out = fan_out.get(node_id, 0)
-        n.fan_in = fan_in.get(node_id, 0)
-        n.recursive = node_id in recursive
 
 
 # Same cap as pipeline._POLY_FANOUT_GUARD — keep in sync.

@@ -43,8 +43,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     _bool_flag(p, "checkpointing", False, "Enable disk-spill checkpointing", "Disable checkpointing (default)")
     p.add_argument("--checkpoint-root", default=None, help="Directory for checkpoint spill (default ./.graph_checkpoints)")
-    _bool_flag(p, "streaming-ingest", False, "Enable streaming ingest (requires --checkpointing)", "Disable streaming ingest (default)")
-    _bool_flag(p, "streaming-writer", False, "Enable streaming writer (requires --streaming-ingest)", "Disable streaming writer (default)")
+    _bool_flag(p, "streaming-ingest", False, "Resolve against a slim node projection + stream refs from disk (requires --checkpointing)", "Disable streaming ingest (default)")
 
     _bool_flag(p, "scip", False, "Enable SCIP precise resolution", "Disable SCIP (default, heuristic resolver only)")
     _bool_flag(p, "extract-cache", True, "Enable local-disk extract cache (default)", "Disable extract cache")
@@ -94,7 +93,6 @@ def main(argv=None) -> int:
         checkpointing=args.checkpointing,
         checkpoint_root=args.checkpoint_root,
         streaming_ingest=args.streaming_ingest,
-        streaming_writer=args.streaming_writer,
         scip=args.scip,
         extract_cache=args.extract_cache,
         extract_cache_dir=args.extract_cache_dir,
