@@ -144,17 +144,56 @@ with st.sidebar:
     neo4j_database = st.text_input("Database", value=_env("NEO4J_DATABASE", "neo4j"))
 
     st.divider()
+    st.header("Profile")
+    # The remaining memory levers interact, and the right combination is not
+    # obvious from the individual knobs: ref streaming does nothing without
+    # checkpointing, and extraction RAM is workers x batch size, not either
+    # alone. Everything else that used to matter is unconditional now
+    # (MEMORY_ARCHITECTURE_PLAN.md items #1/#2/#2b/#14), so these are the only
+    # dials left. Picking a profile sets them; each is still editable after.
+    _PROFILES = {
+        "Balanced": dict(chunk=True, batch=2000, par=True, workers=(os.cpu_count() or 4),
+                         ckpt=False, stream=False, wworkers=1, wbatch=5000),
+        "Low RAM":  dict(chunk=True, batch=500,  par=True, workers=2,
+                         ckpt=True,  stream=True,  wworkers=1, wbatch=2000),
+        "Fast":     dict(chunk=True, batch=4000, par=True, workers=(os.cpu_count() or 4),
+                         ckpt=False, stream=False, wworkers=4, wbatch=10000),
+    }
+    profile = st.radio(
+        "Preset", list(_PROFILES), horizontal=True,
+        help="Low RAM: small batches, few extraction workers, refs streamed from disk "
+             "(needs checkpointing), sequential small writes. Fast: bigger batches and "
+             "concurrent writes, more RAM and more Neo4j transaction memory. "
+             "Changing the preset resets the dials below.",
+    )
+    _P = _PROFILES[profile]
+    _k = profile.replace(" ", "_")  # re-key on change so the widgets actually reset
+
+    st.divider()
     st.header("Ingestion mode")
-    chunking = st.checkbox("Chunked discover+extract", value=True, help='Off = one giant batch ("raw", closest to pre-optimization behavior)')
-    extract_batch_size = st.number_input("Extract batch size (files)", min_value=1, value=2000, disabled=not chunking)
+    chunking = st.checkbox("Chunked discover+extract", value=_P["chunk"], key=f"chunk_{_k}",
+                           help='Off = one giant batch ("raw", closest to pre-optimization behavior)')
+    extract_batch_size = st.number_input("Extract batch size (files)", min_value=1, value=_P["batch"],
+                                         disabled=not chunking, key=f"batch_{_k}",
+                                         help="Files read+parsed per batch. Raw file content is the "
+                                              "extraction peak, and it is bounded by this x workers.")
 
-    parallel_extraction = st.checkbox("Parallel extraction", value=True, help="Off = force single-process sequential extraction")
-    extract_workers = st.number_input("Extraction workers", min_value=1, value=(os.cpu_count() or 4), disabled=not parallel_extraction)
+    parallel_extraction = st.checkbox("Parallel extraction", value=_P["par"], key=f"par_{_k}",
+                                      help="Off = force single-process sequential extraction")
+    extract_workers = st.number_input("Extraction workers", min_value=1, value=_P["workers"],
+                                      disabled=not parallel_extraction, key=f"workers_{_k}",
+                                      help="Each worker holds its own batch, so extraction RAM is "
+                                           "roughly workers x batch size. Windows uses spawn, not "
+                                           "fork, so workers do not share memory copy-on-write.")
 
-    checkpointing = st.checkbox("Disk-spill checkpointing", value=False)
+    checkpointing = st.checkbox("Disk-spill checkpointing", value=_P["ckpt"], key=f"ckpt_{_k}",
+                                help="Spills each extraction batch to disk and drops it from RAM, "
+                                     "instead of accumulating every batch until resolve. Also the "
+                                     "prerequisite for ref streaming below, and enables crash-resume.")
     checkpoint_root = st.text_input("Checkpoint dir", value="./.graph_checkpoints", disabled=not checkpointing)
     streaming_ingest = st.checkbox(
-        "Streaming ingest (needs checkpointing)", value=False, disabled=not checkpointing,
+        "Stream refs from disk (needs checkpointing)", value=_P["stream"] and _P["ckpt"],
+        disabled=not checkpointing, key=f"stream_{_k}",
         help="Streams the ref list from disk during resolve instead of holding it in RAM. "
              "At ~150 bytes per ref and millions of refs on a large repo, that list is now "
              "one of the largest things left — it scales with call sites rather than "
@@ -187,12 +226,13 @@ with st.sidebar:
     cache_io_workers = st.number_input("Extract-cache I/O threads", min_value=1, value=16)
     zip_extract_workers = st.number_input("Zip-extraction threads", min_value=1, value=min(16, max(1, (os.cpu_count() or 4) * 2)))
     write_workers = st.number_input(
-        "Neo4j write workers", min_value=1, value=1,
+        "Neo4j write workers", min_value=1, value=_P["wworkers"], key=f"wworkers_{_k}",
         help="1 = sequential batch writes (default). >1 = concurrent write batches over "
              "threads (I/O-bound, no fork/spawn cost) using retry-safe managed transactions.",
     )
     write_batch_size = st.number_input(
-        "Neo4j write batch size (rows/txn)", min_value=1, value=5000, step=1000,
+        "Neo4j write batch size (rows/txn)", min_value=1, value=_P["wbatch"], step=1000,
+        key=f"wbatch_{_k}",
         help="Rows per write transaction. Smaller = less transaction memory (safer against "
              "dbms.memory.transaction.total.max, especially with >1 write worker) but more "
              "commits; larger = fewer commits but heavier transactions.",
