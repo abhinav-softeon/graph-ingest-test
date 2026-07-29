@@ -27,7 +27,6 @@ services:
       GRAPH_WRITE_BATCH_SIZE: "5000"
       GRAPH_WRITE_WORKERS: "1"
       GRAPH_STREAMING_INGEST: "false"
-      GRAPH_STREAMING_WRITER: "false"
       GRAPH_SCIP_ENABLED: "false"
       GRAPH_LOG_LEVEL: "INFO"
 

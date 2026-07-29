@@ -115,16 +115,9 @@ def is_streaming_ingest_enabled() -> bool:
     return env in ("1", "true", "yes", "on")
 
 
-def is_streaming_writer_enabled() -> bool:
-    """Historical GRAPH_STREAMING_WRITER flag. The behavior it used to gate —
-    eager edge flush to Neo4j with only SlimEdge stand-ins retained in RAM —
-    is now unconditional in pipeline.py (MEMORY_ARCHITECTURE_PLAN.md item #2),
-    so this function is no longer read by the pipeline. Kept only because
-    ingest/build.py still reports GRAPH_STREAMING_WRITER's env value in its
-    diagnostic status dict; the env var itself no longer has any effect on
-    ingestion behavior."""
-    env = os.environ.get("GRAPH_STREAMING_WRITER", "").strip().lower()
-    return env in ("1", "true", "yes", "on")
+# is_streaming_writer_enabled() (GRAPH_STREAMING_WRITER) lived here. The behaviour it
+# gated is unconditional (item #2); it survived only to echo the env var back in a
+# diagnostic dict, which is worse than not reporting it at all.
 
 
 def resolve_checkpoint_seconds() -> float:
@@ -145,18 +138,7 @@ def resolve_checkpoint_seconds() -> float:
     return 60.0
 
 
-def resolve_chunk_size() -> int:
-    """Refs resolved and flushed to Neo4j per chunk under streaming ingest.
-    Bounds the ref/edge working set independent of total ref count."""
-    env = os.environ.get("GRAPH_RESOLVE_CHUNK")
-    if env:
-        try:
-            n = int(env)
-            if n > 0:
-                return n
-        except ValueError:
-            pass
-    return 250_000
+# resolve_chunk_size() (GRAPH_RESOLVE_CHUNK) lived here — nothing ever read it.
 
 
 def is_extract_cache_enabled() -> bool:
@@ -235,19 +217,8 @@ def get_zip_extract_workers() -> int:
     return min(16, max(1, (os.cpu_count() or 4) * 2))
 
 
-def get_resolve_workers() -> int:
-    """Process-pool size for the experimental parallel resolve() path (see
-    resolver_parallel.py). 1 (default) = today's untouched sequential
-    resolve() in resolver.py. >1 opts into the new parallel path."""
-    env = os.environ.get("GRAPH_RESOLVE_WORKERS")
-    if env:
-        try:
-            n = int(env)
-            if n > 0:
-                return n
-        except ValueError:
-            pass
-    return 1
+# get_resolve_workers() (GRAPH_RESOLVE_WORKERS) lived here, selecting a parallel
+# resolve path that the streaming writer made unreachable. Removed with it (item #18).
 
 
 def get_write_workers() -> int:

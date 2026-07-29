@@ -30,23 +30,22 @@ def apply_ingestion_toggles(
     extract_cache_dir: Optional[str] = None,
     cache_io_workers: Optional[int] = None,
     zip_extract_workers: Optional[int] = None,
-    resolve_workers: Optional[int] = None,
     write_workers: Optional[int] = None,
 ) -> None:
     """Set every GRAPH_* env var this app exposes from plain Python values.
 
     Streaming ingest is nested under checkpointing on purpose: its ref-
-    streaming-from-disk half requires disk-spill (``spilling`` = a checkpoint
-    root being set) before it can activate at all, so passing
-    streaming_ingest=True with checkpointing=False here is a no-op rather
-    than a silent contradiction. (Its other half — resolving against a slim
-    node projection — doesn't structurally need checkpointing, but is kept
-    under the same toggle/env var for a single on/off switch rather than a
-    second one for a minor sub-behavior.)
+    streaming-from-disk requires disk-spill (``spilling`` = a checkpoint root
+    being set) before it can activate at all, so passing streaming_ingest=True
+    with checkpointing=False here is a no-op rather than a silent contradiction.
+    Ref streaming is now all this flag does; the slim node projection it used to
+    also gate is unconditional (item #14).
 
-    Node/edge early-write and slimming (formerly GRAPH_STREAMING_WRITER) are
-    unconditional in pipeline.py now (MEMORY_ARCHITECTURE_PLAN.md item #2) —
-    there is no toggle for them anymore.
+    Node/edge early-write and slimming are unconditional in pipeline.py now
+    (items #1/#2), as is the slim node projection resolve reads (item #14) and
+    dropping the bulk edges after their write (item #2b) — so this sets only the
+    knobs that still change behaviour. GRAPH_STREAMING_WRITER and
+    GRAPH_RESOLVE_WORKERS were removed rather than left as no-ops.
     """
     os.environ["GRAPH_EXTRACT_BATCH_SIZE"] = str(extract_batch_size or 2000) if chunking else str(_RAW_BATCH_SIZE_SENTINEL)
 
@@ -70,6 +69,5 @@ def apply_ingestion_toggles(
     if zip_extract_workers:
         os.environ["GRAPH_ZIP_EXTRACT_WORKERS"] = str(zip_extract_workers)
 
-    os.environ["GRAPH_RESOLVE_WORKERS"] = str(resolve_workers or 1)
 
     os.environ["GRAPH_WRITE_WORKERS"] = str(write_workers or 1)

@@ -15,12 +15,10 @@ from graph_core.config import (
     extract_worker_count,
     get_cache_io_workers,
     get_extract_cache_dir,
-    get_resolve_workers,
     get_zip_extract_workers,
     is_extract_cache_enabled,
     is_scip_enabled,
     is_streaming_ingest_enabled,
-    is_streaming_writer_enabled,
     neo4j_config,
 )
 from graph_core.store import GraphStore
@@ -46,12 +44,10 @@ def _config_snapshot(project: str, repo_tag: str, scip: Optional[bool]) -> dict[
         "extract_workers": extract_worker_count(),
         "checkpoint_root": checkpoint_root(),
         "streaming_ingest": is_streaming_ingest_enabled(),
-        "streaming_writer": is_streaming_writer_enabled(),
         "extract_cache_enabled": is_extract_cache_enabled(),
         "extract_cache_dir": get_extract_cache_dir(),
         "cache_io_workers": get_cache_io_workers(),
         "zip_extract_workers": get_zip_extract_workers(),
-        "resolve_workers": get_resolve_workers(),
     }
 
 

@@ -23,7 +23,6 @@ from .config import (
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
-    get_resolve_workers,
     is_streaming_ingest_enabled,
 )
 from .discovery import FileInfo, discover, list_candidate_relpaths
@@ -31,7 +30,6 @@ from .extract_cache import get_extract_cache
 from .ids import make_id
 from .models import Confidence, Edge, Node, Origin, RawRef, _clean
 from .resolver import Coverage, resolve
-from .resolver_parallel import parallel_resolve
 from .scip_resolver import (
     ScipReport,
     finish_scip_java_job,
@@ -694,28 +692,19 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             return keep
 
     _beat("resolving", "building lookup indices")
-    resolve_workers = get_resolve_workers()
-    use_parallel_resolve = (
-        resolve_workers > 1 and resolve_sink is None and isinstance(refs_source, list)
-    )
-    if resolve_workers > 1 and not use_parallel_resolve:
-        _log.warning(
-            "[graph_ingest][repo=%s] GRAPH_RESOLVE_WORKERS=%s requested but not usable here "
-            "(streaming writer active and/or refs are disk-streamed) — falling back to "
-            "sequential resolve()", repo, resolve_workers,
-        )
+    # A parallel-resolve branch (GRAPH_RESOLVE_WORKERS > 1, resolver_parallel.py)
+    # was selected here. It required `resolve_sink is None`, but the streaming
+    # writer sets a sink on every run — so the condition could never be true and
+    # the only thing the knob did was log a warning and fall through to this
+    # call. Removed along with the flag and the module (item #18); it also
+    # degraded resolution precision at chunk boundaries, which is why
+    # CONFIGURATION.md already said to keep it at 1.
     try:
-        if use_parallel_resolve:
-            extra_nodes, resolved_edges, coverage = parallel_resolve(
-                resolve_nodes, all_edges, refs_source, repo, resolve_workers,
-                on_progress=_resolve_progress, cancel_check=cancel_check,
-            )
-        else:
-            extra_nodes, resolved_edges, coverage = resolve(
-                resolve_nodes, all_edges, refs_source, repo,
-                on_progress=_resolve_progress, cancel_check=cancel_check,
-                checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
-            )
+        extra_nodes, resolved_edges, coverage = resolve(
+            resolve_nodes, all_edges, refs_source, repo,
+            on_progress=_resolve_progress, cancel_check=cancel_check,
+            checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
+        )
     finally:
         # Drain and stop the background writer before anything that assumes the
         # writes are durable (or before propagating a failure/cancellation).

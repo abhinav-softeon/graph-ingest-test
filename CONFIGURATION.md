@@ -27,9 +27,11 @@ This doc lists them all and gives the **least-resource** configuration.
 **Node/edge early-write + slimming is unconditional, not a toggle.** Every run
 writes extracted nodes to Neo4j before resolve and drops their bulky/unused
 fields from RAM, and flushes edges to Neo4j as they reach final form keeping
-only slim stand-ins in RAM — this used to be gated behind `GRAPH_STREAMING_WRITER`
-(now removed) and disk-spill checkpointing for no structural reason; it's the
-default, always-on behavior now (`MEMORY_ARCHITECTURE_PLAN.md` items #1/#2).
+only slim stand-ins in RAM. Since then the bulk edges are not retained at all —
+they are dropped once written (item #2b) — and `all_nodes` is itself a slim
+projection that resolve reads directly (item #14). None of this is toggleable;
+`GRAPH_STREAMING_WRITER` and `GRAPH_RESOLVE_WORKERS` were removed rather than
+left as env vars that do nothing.
 
 ## Low-RAM derive (Option A) — REMOVED
 
@@ -46,7 +48,6 @@ See `MEMORY_ARCHITECTURE_PLAN.md` items #2b and #16.
 |---|---|---|
 | `GRAPH_WRITE_WORKERS` | `1` | Concurrent Neo4j write batches. **More = faster writes but more concurrent transaction memory** on the Neo4j side (watch `dbms.memory.transaction.total.max`). |
 | `GRAPH_WRITE_BATCH_SIZE` | `5000` | Rows per write transaction. **Smaller = less Neo4j transaction memory** (safer vs OOM), more commits; larger = fewer commits, heavier transactions. |
-| `GRAPH_RESOLVE_WORKERS` | `1` | ⚠️ Experimental parallel resolve — **degrades resolution precision at chunk boundaries** (import-context split). Keep at `1`. |
 | `GRAPH_CACHE_IO_WORKERS` | `16` | Extract-cache I/O threads (I/O-bound; cheap). |
 | `GRAPH_ZIP_EXTRACT_WORKERS` | `min(16, cpu*2)` | Unzip threads. |
 
@@ -84,17 +85,9 @@ same-named `.py` file when both exist, so "on/off" means "was
 
 | Env var | Default | Notes |
 |---|---|---|
-| `GRAPH_RESOLVE_CHUNK` | `250000` | Resolve progress-report granularity. |
 | `GRAPH_RESOLVE_CHECKPOINT_SECONDS` | `60` | Resolve-state checkpoint cadence (only when checkpointing on without streaming). |
 | `GRAPH_INDEX_LOCK_STALE_SECONDS` | `1800` | How long a namespace lock is honored before it's reclaimable as stale. |
 | `GRAPH_LOG_LEVEL` | `INFO` | |
-
-## Disabled (kept for re-enabling)
-
-| Env var | Notes |
-|---|---|
-| `GRAPH_DUMP_GRAPH_PATH` | Joblib dump of the resolved graph — **currently disabled** in `pipeline.py` (`if False:`). See `load_graph_to_neo4j.py`. |
-| `GRAPH_DUMP_SHARD_SIZE` | Edges per dump shard (default 2,000,000) when the dump path is re-enabled. |
 
 ---
 
@@ -117,7 +110,6 @@ GRAPH_WRITE_BATCH_SIZE=5000
 GRAPH_WRITE_WORKERS=1                       # sequential writes = least concurrent txn memory
 GRAPH_EXTRACT_BATCH_SIZE=1000               # smaller batches = less extraction RAM
 GRAPH_EXTRACT_WORKERS=2                     # fewer workers = less extraction RAM (slower)
-GRAPH_RESOLVE_WORKERS=1                     # never raise (precision + memory)
 
 # --- keep the cache on (cheap, speeds re-runs) ---
 GRAPH_EXTRACT_CACHE_ENABLED=true

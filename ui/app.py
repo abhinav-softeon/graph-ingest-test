@@ -155,10 +155,12 @@ with st.sidebar:
     checkpoint_root = st.text_input("Checkpoint dir", value="./.graph_checkpoints", disabled=not checkpointing)
     streaming_ingest = st.checkbox(
         "Streaming ingest (needs checkpointing)", value=False, disabled=not checkpointing,
-        help="Resolve against a slim node projection and stream refs from disk instead of "
-             "holding the whole ref list in RAM. Node/edge early-write to Neo4j and slimming "
-             "happen unconditionally on every run now — there's no separate toggle for that "
-             "anymore (MEMORY_ARCHITECTURE_PLAN.md items #1/#2).",
+        help="Streams the ref list from disk during resolve instead of holding it in RAM. "
+             "At ~150 bytes per ref and millions of refs on a large repo, that list is now "
+             "one of the largest things left — it scales with call sites rather than "
+             "declarations. Everything else this used to gate is unconditional: node/edge "
+             "early-write to Neo4j (items #1/#2), the slim node projection that resolve reads "
+             "(item #14), and dropping the bulk edges after their write (item #2b).",
     )
 
     st.divider()
@@ -184,11 +186,6 @@ with st.sidebar:
     st.header("Concurrency (advanced)")
     cache_io_workers = st.number_input("Extract-cache I/O threads", min_value=1, value=16)
     zip_extract_workers = st.number_input("Zip-extraction threads", min_value=1, value=min(16, max(1, (os.cpu_count() or 4) * 2)))
-    resolve_workers = st.number_input(
-        "Resolve workers (EXPERIMENTAL)", min_value=1, value=1,
-        help="1 = sequential resolve() (default, proven). >1 = new parallel path — "
-             "may use MORE memory on Windows (spawn, not fork). Measure, don't assume.",
-    )
     write_workers = st.number_input(
         "Neo4j write workers", min_value=1, value=1,
         help="1 = sequential batch writes (default). >1 = concurrent write batches over "
@@ -270,7 +267,6 @@ if run_btn:
             extract_cache_dir=extract_cache_dir,
             cache_io_workers=int(cache_io_workers),
             zip_extract_workers=int(zip_extract_workers),
-            resolve_workers=int(resolve_workers),
             write_workers=int(write_workers),
         )
 
