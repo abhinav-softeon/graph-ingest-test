@@ -586,6 +586,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         javac_edges, javac_report = resolve_java_calls(
             all_nodes, root, repo,
             timeout=javac_timeout_seconds(), batch_size=javac_batch_size(),
+            java_files_seen=sum(1 for p in all_relpaths if p.lower().endswith(".java")),
         )
         javac_owns_java = javac_report.available
         if not javac_owns_java:
@@ -743,12 +744,13 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             resolve_nodes, all_edges, refs_source, repo,
             on_progress=_resolve_progress, cancel_check=cancel_check,
             checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
-            # When javac resolved Java's calls, the heuristic must not resolve
-            # them too: its output would be discarded anyway, and producing it
-            # is the expensive part (a 16.5k-file Java repo generated 3.3M
-            # ambiguous CALLS at 0.1% precision). Skipping is what makes javac
-            # a replacement for the work rather than an addition to it.
-            skip_call_langs={"java"} if javac_owns_java else None,
+            # Only the files javac actually attributed — NOT all of Java. Any
+            # file it missed still needs heuristic CALLS or it would end up with
+            # no call graph at all, which is worse than name-matched edges and
+            # invisible in the output. Skipping the covered files is what makes
+            # javac a replacement for that work rather than an addition to it
+            # (a 16.5k-file repo produced 3.3M ambiguous CALLS at 0.1% precision).
+            skip_call_files=javac_report.attributed_files if javac_owns_java else None,
         )
     finally:
         # Drain and stop the background writer before anything that assumes the

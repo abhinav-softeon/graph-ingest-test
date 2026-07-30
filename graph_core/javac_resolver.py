@@ -24,9 +24,17 @@ Java CALLS only. Every other edge type, and every other language, stays on the
 heuristic resolver — this replaces the one thing it is worst at.
 
 FALLBACK
-Any failure (no JDK, compile abort, timeout, low coverage) returns
-``available=False`` and the caller keeps the heuristic edges, exactly as the
-SCIP path does. Never raises into the pipeline.
+Hard failures (no JDK, compile abort, timeout, broken attribution) return
+``available=False`` and the caller keeps every heuristic edge. Never raises into
+the pipeline.
+
+PARTIAL COVERAGE IS NOT A FAILURE
+javac may attribute only part of a tree. The caller passes
+``report.attributed_files`` to ``resolve(skip_call_files=...)``, so the heuristic
+still resolves CALLS for every file javac missed. Without that, an all-or-nothing
+takeover would leave unattributed files with NO call edges — worse than
+name-matched ones, and invisible in the output. The graph can therefore hold both
+provenances at once; ``r.strategy == 'javac_typed'`` distinguishes them.
 """
 from __future__ import annotations
 
@@ -59,6 +67,24 @@ class JavacReport:
     unmatched_callee: int = 0
     seconds: float = 0.0
     stats: dict = field(default_factory=dict)   # the oracle's own STATS block
+    # Repo-relative paths javac actually attributed. THE critical field: the
+    # heuristic must keep resolving CALLS for every Java file NOT in here, or
+    # those files silently end up with no call edges at all. Coverage is
+    # per-file rather than all-or-nothing precisely so partial attribution
+    # degrades gracefully instead of falling off a threshold cliff.
+    attributed_files: set[str] = field(default_factory=set)
+    # Distinct files, counted separately because attributed_files deliberately
+    # holds BOTH separator spellings of each path (see the @FILE handling) and
+    # len() would therefore double-count on Windows.
+    attributed_file_count: int = 0
+    java_files_seen: int = 0      # .java files the pipeline handed over
+    attribution_rate: float = 0.0  # bound invocations / invocations seen
+
+    @property
+    def file_coverage(self) -> float:
+        if not self.java_files_seen:
+            return 0.0
+        return self.attributed_file_count / self.java_files_seen
 
 
 def javac_available() -> tuple[bool, str]:
@@ -116,7 +142,8 @@ def _norm_method(cls_fqn: str, method: str) -> str:
 def resolve_java_calls(
     nodes: list[Node], repo_root: str, repo: str,
     timeout: float = 3600.0, batch_size: int = 400,
-    min_rows: int = 1,
+    java_files_seen: int = 0,
+    min_attribution_rate: float = 0.5,
 ) -> tuple[list[Edge], JavacReport]:
     """Run the oracle and map its bindings onto graph node ids.
 
@@ -125,9 +152,19 @@ def resolve_java_calls(
     via (fqn, param_count). Returns ([], unavailable-report) on any failure so
     the caller can keep its heuristic edges.
 
-    ``min_rows`` guards against a run that "succeeded" but attributed almost
-    nothing (e.g. the tree failed to resolve): replacing a working heuristic
-    graph with a near-empty one would be worse than not running at all.
+    ``java_files_seen``: how many .java files the pipeline is indexing. Used
+    only to report file coverage; it does NOT gate anything, because the caller
+    is expected to hand ``report.attributed_files`` to resolve() and let the
+    heuristic cover whatever javac did not. Partial coverage is a normal,
+    safe outcome — not a failure.
+
+    ``min_attribution_rate``: the one real quality floor. If javac bound less
+    than this fraction of the invocations it saw, attribution itself was broken
+    (missing sources, cascading unresolved symbols) rather than merely partial,
+    and its edges would be unreliable even for the files it "attributed" — so
+    the whole pass is abandoned. Distinct from coverage: a run can attribute
+    30% of files perfectly (fine, use it for those) or 100% of files badly
+    (not fine, discard).
     """
     rep = JavacReport()
     ok, why = javac_available()
@@ -179,9 +216,30 @@ def resolve_java_calls(
 
         edges: list[Edge] = []
         seen: set[tuple[str, str]] = set()
+        rep.java_files_seen = java_files_seen
         with open(tsv_path, "r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 parts = line.rstrip("\n").split("\t")
+                if parts and parts[0] == "@FILE":
+                    # Attributed-file marker (see CallOracle). Recorded even for
+                    # files with no calls — coverage is about what javac RESOLVED,
+                    # not about what happened to contain an invocation.
+                    #
+                    # BOTH separator forms are stored. The oracle emits POSIX
+                    # paths; discovery.FileInfo.relpath (and therefore
+                    # RawRef.ref_file) uses os.sep, so on Windows these are
+                    # 'a/b/C.java' vs 'a\\b\\C.java' and the membership test in
+                    # resolve() silently never matches — javac would appear to
+                    # work while the heuristic quietly re-resolved everything.
+                    # Platform-dependent no-op, so it is normalized here, once,
+                    # rather than per-ref in the hot loop.
+                    if len(parts) > 1 and parts[1]:
+                        rel = parts[1]
+                        if rel not in rep.attributed_files:
+                            rep.attributed_file_count += 1
+                        rep.attributed_files.add(rel)
+                        rep.attributed_files.add(rel.replace("/", os.sep))
+                    continue
                 if len(parts) < 8:
                     continue
                 (caller_cls, caller_m, caller_ar,
@@ -221,18 +279,49 @@ def resolve_java_calls(
 
         rep.edges = len(edges)
         rep.seconds = time.monotonic() - t0
-        if rep.edges < min_rows:
-            rep.reason = f"only {rep.edges} edge(s) mapped — too thin to trust"
+
+        # Attribution QUALITY floor. `unresolved` counts invocations javac could
+        # not bind at all; a high share means attribution broke rather than
+        # merely covering part of the tree, and even the "attributed" files
+        # cannot be trusted. Coverage is deliberately NOT gated here — the
+        # caller uses attributed_files so uncovered files keep their heuristic
+        # edges, which makes partial coverage safe by construction.
+        seen_inv = rep.stats.get("invocations_seen", 0)
+        bound = rep.stats.get("resolved_in_repo", 0) + rep.stats.get("resolved_external", 0)
+        rep.attribution_rate = (bound / seen_inv) if seen_inv else 0.0
+        if seen_inv and rep.attribution_rate < min_attribution_rate:
+            rep.reason = (
+                f"attribution rate {rep.attribution_rate:.0%} below "
+                f"{min_attribution_rate:.0%} ({bound}/{seen_inv} invocations bound) "
+                f"— javac could not resolve this tree reliably"
+            )
+            _log.warning("[javac] %s — staying on heuristic resolver for Java", rep.reason)
+            return [], rep
+        if not rep.attributed_files:
+            rep.reason = "javac attributed no files"
             _log.warning("[javac] %s — staying on heuristic resolver for Java", rep.reason)
             return [], rep
 
         rep.available = True
         _log.info(
-            "[javac] resolved %s in-repo call(s) -> %s edge(s) in %.1fs "
-            "(unmatched caller=%s callee=%s) stats=%s",
-            rep.rows, rep.edges, rep.seconds,
+            "[javac] %s edge(s) from %s in-repo call(s) in %.1fs | "
+            "files attributed %s/%s (%.0f%%) | attribution rate %.0f%% | "
+            "unmatched caller=%s callee=%s | stats=%s",
+            rep.edges, rep.rows, rep.seconds,
+            rep.attributed_file_count, rep.java_files_seen or "?",
+            100.0 * rep.file_coverage, 100.0 * rep.attribution_rate,
             rep.unmatched_caller, rep.unmatched_callee, rep.stats,
         )
+        if rep.java_files_seen and rep.file_coverage < 0.95:
+            # Not a failure — just must not pass silently, since the heuristic
+            # is now responsible for the remainder and anyone reading edge
+            # counts needs to know the graph has two provenances.
+            _log.warning(
+                "[javac] %s of %s Java file(s) were NOT attributed — those keep "
+                "heuristic (name-matched) CALLS; the graph mixes both provenances "
+                "(check r.strategy: 'javac_typed' vs the rest)",
+                rep.java_files_seen - rep.attributed_file_count, rep.java_files_seen,
+            )
         return edges, rep
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

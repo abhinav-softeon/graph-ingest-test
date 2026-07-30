@@ -199,6 +199,14 @@ public class CallOracle {
         for (CompilationUnitTree cu : asts) {
             filesAttributed++;
             final String file = relativize(cu.getSourceFile().toUri().getPath());
+            // Emit EVERY attributed file, not just those containing calls. A
+            // consumer needs to know which files javac actually resolved so it
+            // can defer to the heuristic on the rest — a file with zero calls is
+            // still "covered", and inferring coverage from call rows alone would
+            // wrongly mark it uncovered. Prefixed so it is trivially separable
+            // from call rows in one pass.
+            out.print("@FILE\t");
+            out.println(relRoot(root, file));
             new TreePathScanner<Void, Void>() {
                 String enclosingClass = "";
                 String enclosingMethod = "";
@@ -276,6 +284,18 @@ public class CallOracle {
             }.scan(cu, null);
         }
         fm.close();
+    }
+
+    /** Path relative to the source root, forward-slashed — the form the graph
+     *  stores in evidence_file, so consumers can match without re-deriving it. */
+    static String relRoot(Path root, String absolute) {
+        String r = root.toString().replace('\\', '/');
+        if (!r.endsWith("/")) r = r + "/";
+        String a = absolute.replace('\\', '/');
+        if (a.regionMatches(true, 0, r, 0, r.length())) {
+            return a.substring(r.length());
+        }
+        return a;
     }
 
     static String relativize(String uriPath) {
