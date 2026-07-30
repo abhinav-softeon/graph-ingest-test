@@ -72,8 +72,16 @@ def resolve(
     cancel_check: Callable[[], bool] | None = None,
     checkpoint_root: str | None = None,
     edge_sink: "Callable[[list[Node], list[Edge]], list] | None" = None,
+    skip_call_langs: set[str] | None = None,
 ):
     """Return (extra_nodes, edges, coverage_by_reftype).
+
+    ``skip_call_langs``: languages whose CALLS refs another resolver owns (see
+    graph_core/javac_resolver.py). Those refs are skipped outright rather than
+    resolved and later discarded — for a language where a type-precise resolver
+    is available, the heuristic's output is both wrong and expensive to produce,
+    so not producing it is the point. Every OTHER ref type for those languages
+    still resolves here; only CALLS is handed over.
 
     `edges` is the structural edge list from extraction (CONTAINS), used to
     build the containment scope that powers scope-aware call resolution.
@@ -121,6 +129,9 @@ def resolve(
         repo, len(nodes), len(edges), len(refs),
     )
     _t_index_start = time.monotonic()
+    # Hoisted to a local: read per CALLS ref in the hot loop, and an empty set
+    # short-circuits before the nodes_by_id lookup on the default path.
+    _skip_langs = skip_call_langs or frozenset()
     nodes_by_id: dict[str, Node] = {n.id: n for n in nodes}
 
     def _class_package(n: Node) -> str:
@@ -702,6 +713,14 @@ def resolve(
         # ("CALLS", "PASSES") until PASSES was removed — no extractor ever emitted
         # a PASSES ref (verified), so that arm was unreachable.
         if ref.type == "CALLS":
+            # Owned by a type-precise resolver for this language — emit nothing.
+            # Counted as external so the coverage totals stay honest: from this
+            # resolver's point of view the target genuinely is not its to find.
+            if _skip_langs:
+                src_node = nodes_by_id.get(ref.src)
+                if src_node is not None and src_node.lang in _skip_langs:
+                    cov.external += 1
+                    return
             wanted, strategy = narrow_call(ref)
             # Receiver typed to something outside the repo — emit nothing at all.
             # This must short-circuit BOTH the REFERENCES demotion below and the

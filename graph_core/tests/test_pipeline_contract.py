@@ -74,7 +74,7 @@ class RecordingStore:
 
 def _run(**kwargs):
     store = RecordingStore()
-    result = pipeline.index_repo(_CORPUS, "contract", store, wipe=True, scip=False, **kwargs)
+    result = pipeline.index_repo(_CORPUS, "contract", store, wipe=True, javac=False, **kwargs)
     return store, result
 
 

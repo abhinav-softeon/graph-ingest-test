@@ -32,6 +32,15 @@ import sys
 from collections import defaultdict
 
 
+def _norm_method(cls_fqn: str, method: str) -> str:
+    """javac calls constructors `<init>`; the Java extractor names them after
+    their class (java.py, `is_ctor` branch). Without this, EVERY constructor
+    call counted as a graph miss — a measurement artifact, not a real defect."""
+    if method == "<init>":
+        return cls_fqn.rsplit(".", 1)[-1]
+    return method
+
+
 def load_oracle(path: str):
     """(caller_fqn, callee_fqn) pairs javac resolved, plus the caller universe."""
     pairs: set[tuple[str, str]] = set()
@@ -40,14 +49,22 @@ def load_oracle(path: str):
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) < 7:
+            # 8 columns since caller arity was added; tolerate the older
+            # 7-column files rather than silently reading zero rows.
+            if len(parts) >= 8:
+                caller_cls, caller_m, _car, callee_cls, callee_m, _ar, file, ln = parts[:8]
+            elif len(parts) == 7:
+                caller_cls, caller_m, callee_cls, callee_m, _ar, file, ln = parts
+            else:
                 continue
-            caller_cls, caller_m, callee_cls, callee_m, arity, file, ln = parts[:7]
             if not caller_cls or not callee_cls:
                 continue
             rows += 1
             caller_classes.add(caller_cls)
-            pairs.add((f"{caller_cls}#{caller_m}", f"{callee_cls}#{callee_m}"))
+            pairs.add((
+                f"{caller_cls}#{_norm_method(caller_cls, caller_m)}",
+                f"{callee_cls}#{_norm_method(callee_cls, callee_m)}",
+            ))
     return pairs, caller_classes, rows
 
 

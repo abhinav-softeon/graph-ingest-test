@@ -2,7 +2,7 @@
 
 `all_nodes` IS a SlimNode list from the pre-resolve write onward (item #14), so
 this contract now covers far more than resolution: EVERY consumer from that
-point on — resolver.py, the derive passes, validate_graph, scip_resolver — sees
+point on — resolver.py, the derive passes, validate_graph, javac_resolver — sees
 only SLIM_NODE_FIELDS. If any of them starts reading a Node field the projection
 drops, it would raise AttributeError at best and silently degrade output at
 worst. These tests fail loudly instead, so the guarantee is enforced
@@ -37,7 +37,7 @@ _POST_RESOLVE_READERS: dict[str, set[str] | None] = {
         "_lowram_derive_and_write",
     },
     "validator.py": None,
-    "scip_resolver.py": None,
+    "javac_resolver.py": None,
 }
 
 # Variable names bound to a Node (or Node candidate) inside resolver.py. Attribute

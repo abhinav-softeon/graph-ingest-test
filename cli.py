@@ -45,7 +45,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint-root", default=None, help="Directory for checkpoint spill (default ./.graph_checkpoints)")
     _bool_flag(p, "streaming-ingest", False, "Resolve against a slim node projection + stream refs from disk (requires --checkpointing)", "Disable streaming ingest (default)")
 
-    _bool_flag(p, "scip", False, "Enable SCIP precise resolution", "Disable SCIP (default, heuristic resolver only)")
+    _bool_flag(p, "javac", False,
+               "Resolve Java CALLS with javac (type-precise) instead of heuristic name matching",
+               "Disable the javac resolver (default, heuristic resolver only)")
     _bool_flag(p, "extract-cache", True, "Enable local-disk extract cache (default)", "Disable extract cache")
     p.add_argument("--extract-cache-dir", default=None, help="Local dir for the extract cache (default ./.cache/graph_extract_cache)")
 
@@ -88,7 +90,7 @@ def main(argv=None) -> int:
         checkpointing=args.checkpointing,
         checkpoint_root=args.checkpoint_root,
         streaming_ingest=args.streaming_ingest,
-        scip=args.scip,
+        javac=args.javac,
         extract_cache=args.extract_cache,
         extract_cache_dir=args.extract_cache_dir,
         cache_io_workers=args.cache_io_workers,

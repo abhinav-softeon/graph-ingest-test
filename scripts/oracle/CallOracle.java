@@ -18,8 +18,16 @@
  * be thousands, and they are expected, not failures.
  *
  * OUTPUT (TSV, one row per resolved in-repo invocation):
- *     callerClass <TAB> callerMethod <TAB> calleeClass <TAB> calleeMethod
- *                 <TAB> calleeArity <TAB> file <TAB> line
+ *     callerClass <TAB> callerMethod <TAB> callerArity <TAB> calleeClass
+ *                 <TAB> calleeMethod <TAB> calleeArity <TAB> file <TAB> line
+ * Both arities are emitted because a graph Function node is keyed by
+ * (fqn, param_count) — the extractor gives every overload the same fqn, so the
+ * arity is what distinguishes them.
+ *
+ * Constructors are reported by javac as `<init>`; the graph names them after
+ * their class. Consumers normalize (see graph_core/javac_resolver.py) rather
+ * than having this tool lie about what the compiler said.
+ *
  * Plus a STATS: line to stderr with the resolution breakdown.
  *
  * USAGE
@@ -194,6 +202,7 @@ public class CallOracle {
             new TreePathScanner<Void, Void>() {
                 String enclosingClass = "";
                 String enclosingMethod = "";
+                int enclosingArity = 0;
 
                 @Override
                 public Void visitClass(ClassTree node, Void p) {
@@ -210,9 +219,16 @@ public class CallOracle {
                 @Override
                 public Void visitMethod(MethodTree node, Void p) {
                     String prev = enclosingMethod;
+                    int prevArity = enclosingArity;
                     enclosingMethod = node.getName().toString();
+                    // Caller arity is emitted too: a graph Function node is keyed
+                    // by (fqn, param_count) because the extractor gives every
+                    // overload the same fqn. Without the caller's arity an
+                    // overloaded caller cannot be mapped to a single node.
+                    enclosingArity = node.getParameters().size();
                     super.visitMethod(node, p);
                     enclosingMethod = prev;
+                    enclosingArity = prevArity;
                     return null;
                 }
 
@@ -240,6 +256,7 @@ public class CallOracle {
                                 long line = pos >= 0 ? cu.getLineMap().getLineNumber(pos) : 0;
                                 out.print(enclosingClass);   out.print('\t');
                                 out.print(enclosingMethod);  out.print('\t');
+                                out.print(enclosingArity);   out.print('\t');
                                 out.print(ownerFqn);         out.print('\t');
                                 out.print(m.getSimpleName());out.print('\t');
                                 out.print(m.getParameters().size()); out.print('\t');

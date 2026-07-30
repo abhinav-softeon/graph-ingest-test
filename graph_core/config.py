@@ -3,50 +3,56 @@
 Infrastructure shim: unlike the original graph_rag config, this does NOT load a
 `.env` file. Neo4j connection values come from the service environment (set by
 `app/core/config.py` / docker-compose), so the graph engine shares one config
-source with the rest of developer_assistant. SCIP indexers are optional and
-default to disabled unless a binary is explicitly available.
+source with the rest of developer_assistant.
+
+SCIP was removed entirely. scip-java indexes by compiling the project through
+Maven/Gradle, and the ingested tree is source-only — the upload path strips
+build files, and the target repos may have none at all — so it could never run.
+graph_core/javac_resolver.py replaces it: javac resolves in-repo types from
+`-sourcepath` alone, needing no build system.
 """
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass, field
 
 
-def scip_python_bin() -> str | None:
-    """Locate the scip-python indexer binary, or None to fall back to the
-    heuristic resolver. Order: $SCIP_PYTHON_BIN -> PATH -> None.
+def is_javac_resolver_enabled() -> bool:
+    """Use javac to resolve Java CALLS instead of heuristic name matching.
 
-    SCIP is optional in the service (precise Python resolution). Per-PR indexing
-    stays fast on the heuristic resolver when no binary is present."""
-    env = os.environ.get("SCIP_PYTHON_BIN")
-    if env:
-        for cand in (env, env + ".cmd", env + ".ps1"):
-            if os.path.exists(cand):
-                return cand
-    return shutil.which("scip-python")
+    Measured against javac ground truth on a 16.5k-file Java repo, the heuristic
+    scored 93.8% recall but 5.0% precision — it finds the right target and then
+    emits every same-named candidate beside it, having no type system to choose
+    with. Ambiguous CALLS alone measured 0.1% precision. javac has the types.
 
-
-def scip_java_bin() -> str | None:
-    """Locate the scip-java indexer binary, or None. Order: $SCIP_JAVA_BIN ->
-    PATH -> None (heuristic resolver fallback)."""
-    env = os.environ.get("SCIP_JAVA_BIN")
-    if env:
-        for cand in (env, env + ".bat", env + ".cmd"):
-            if os.path.exists(cand):
-                return cand
-    return shutil.which("scip-java")
+    Default off; opt in with GRAPH_JAVAC_RESOLVER=1/true. Falls back to the
+    heuristic on any failure (no JDK, compile abort, timeout, thin coverage)."""
+    env = os.environ.get("GRAPH_JAVAC_RESOLVER", "false").strip().lower()
+    return env in ("1", "true", "yes", "on")
 
 
-def scip_java_max_files() -> int:
-    """Repos with more Java files than this skip scip-java entirely and stay
-    on the heuristic resolver. scip-java compiles the whole project to get
-    type info, so on a very large monorepo that cost may not be worth the
-    precision gain. 0 (default) means no limit."""
+def javac_timeout_seconds() -> float:
+    """Wall-clock budget for the javac attribution pass (default 3600).
+
+    Unlike a Maven build this is pure attribution — no dependency resolution,
+    no artifact download — but a large monorepo still takes real time. On
+    timeout the pass is abandoned and Java stays on the heuristic resolver."""
     try:
-        return int(os.environ.get("SCIP_JAVA_MAX_FILES", "0"))
+        v = float(os.environ.get("GRAPH_JAVAC_TIMEOUT_SECONDS", "3600"))
     except ValueError:
-        return 0
+        return 3600.0
+    return v if v > 0 else 3600.0
+
+
+def javac_batch_size() -> int:
+    """Files per javac task (default 400). Attribution holds the whole batch's
+    symbol table, so this is the memory knob: lower it if javac OOMs, rather
+    than raising the heap."""
+    try:
+        v = int(os.environ.get("GRAPH_JAVAC_BATCH_SIZE", "400"))
+    except ValueError:
+        return 400
+    return v if v > 0 else 400
 
 
 def extract_worker_count() -> int:
@@ -177,48 +183,6 @@ def compiled_hotpath_status() -> dict[str, bool]:
         "resolver": _is_compiled(_resolver),
         "pipeline": _is_compiled(_pipeline),
     }
-
-
-def is_scip_enabled() -> bool:
-    """Master ON/OFF checkbox for SCIP precise resolution, independent of
-    whether scip-python/scip-java binaries are actually found (see
-    scip_python_bin()/scip_java_bin() above, which no-op gracefully either
-    way). Default off; opt in with GRAPH_SCIP_ENABLED=1/true."""
-    env = os.environ.get("GRAPH_SCIP_ENABLED", "false").strip().lower()
-    return env in ("1", "true", "yes", "on")
-
-
-def scip_java_timeout_seconds() -> float:
-    """Wall-clock budget for the scip-java compile, in seconds (default 900).
-
-    This was a hardcoded 900.0 constant. scip-java's cost IS the project's
-    Maven/Gradle build, so the ceiling has to scale with the repo: a 15k-file
-    Java monorepo routinely compiles for longer than 15 minutes, and blowing
-    the budget is NOT a soft failure — the subprocess is killed and the whole
-    language silently falls back to the heuristic resolver (see
-    _run_subprocess_with_heartbeat), so the run pays the full build time AND
-    still does the slow heuristic pass. Set SCIP_JAVA_TIMEOUT_SECONDS to at
-    least a comfortable multiple of a measured `mvn compile` on the target repo.
-    """
-    try:
-        v = float(os.environ.get("SCIP_JAVA_TIMEOUT_SECONDS", "900"))
-    except ValueError:
-        return 900.0
-    return v if v > 0 else 900.0
-
-
-def is_scip_only() -> bool:
-    """Stop the run after SCIP indexing instead of continuing into the
-    heuristic resolver and the derive/write tail.
-
-    Purely a measurement mode: SCIP's cost on a large Java repo is the one
-    number that decides whether precise resolution is viable at all, and there
-    is otherwise no way to get it without also paying for a multi-hour resolve.
-    The graph produced is deliberately incomplete — nodes and structural edges
-    are written, CALLS come from SCIP, and nothing else is resolved — so a run
-    with this set is never marked as a valid diff baseline."""
-    env = os.environ.get("GRAPH_SCIP_ONLY", "false").strip().lower()
-    return env in ("1", "true", "yes", "on")
 
 
 def get_cache_io_workers() -> int:

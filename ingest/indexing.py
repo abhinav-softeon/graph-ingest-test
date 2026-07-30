@@ -47,7 +47,7 @@ def ensure_graph_indexed(
     repo_tag: str,
     store: GraphStore,
     *,
-    scip: bool = True,
+    javac: bool = False,
     on_stage: Optional[Callable[[str, dict], None]] = None,
     candidate_relpaths: Optional[List[str]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
@@ -114,7 +114,7 @@ def ensure_graph_indexed(
             repo_tag,
             store,
             wipe=not has_baseline,
-            scip=scip,
+            javac=javac,
             on_stage=on_stage,
             candidate_files=candidate_relpaths,
             cancel_check=cancel_check,
@@ -122,20 +122,6 @@ def ensure_graph_indexed(
             deleted_files=deleted_files,
         )
         node_count, edge_count = store.counts(repo_tag)
-        if getattr(index_result, "scip_only", False):
-            # A SCIP-only run skipped the heuristic resolver, so the graph is
-            # missing every non-SCIP edge. Recording it as "ready" with this
-            # codebase hash would make the NEXT real run match the hash and skip
-            # re-indexing entirely (the short circuit above), leaving the
-            # incomplete graph in place indefinitely. Leave the status alone —
-            # the measurement is in the logs and the RunReport, which is the
-            # whole point of the mode.
-            logfn(
-                f"[graph_build] {repo_tag} SCIP-only measurement run — graph is "
-                f"incomplete, NOT recording it as an up-to-date baseline"
-            )
-            store.upsert_graph_meta(repo_tag, {"status": "scip_only"})
-            return index_result
         store.upsert_graph_meta(repo_tag, {
             "codebase_hash": current_hash,
             "file_count": len(current_manifest),

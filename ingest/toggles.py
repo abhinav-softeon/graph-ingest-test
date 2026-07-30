@@ -25,9 +25,9 @@ def apply_ingestion_toggles(
     checkpointing: bool = False,
     checkpoint_root: Optional[str] = None,
     streaming_ingest: bool = False,
-    scip: bool = False,
-    scip_only: bool = False,
-    scip_java_timeout_seconds: Optional[float] = None,
+    javac: bool = False,
+    javac_timeout_seconds: Optional[float] = None,
+    javac_batch_size: Optional[int] = None,
     extract_cache: bool = True,
     extract_cache_dir: Optional[str] = None,
     cache_io_workers: Optional[int] = None,
@@ -60,19 +60,14 @@ def apply_ingestion_toggles(
 
     os.environ["GRAPH_STREAMING_INGEST"] = "true" if (checkpointing and streaming_ingest) else "false"
 
-    os.environ["GRAPH_SCIP_ENABLED"] = "true" if scip else "false"
-
-    # Nested under scip for the same reason streaming_ingest is nested under
-    # checkpointing: scip_only without scip would skip the heuristic resolver
-    # and then have nothing to resolve CALLS with, producing an empty-ish graph
-    # rather than a measurement. index_repo defends against this too.
-    os.environ["GRAPH_SCIP_ONLY"] = "true" if (scip and scip_only) else "false"
-
-    # scip-java's cost IS the project's Maven/Gradle build, so the timeout has
-    # to be sized per repo — the 900s default silently kills the compile on a
-    # large monorepo and falls back to the heuristic resolver.
-    if scip_java_timeout_seconds:
-        os.environ["SCIP_JAVA_TIMEOUT_SECONDS"] = str(int(scip_java_timeout_seconds))
+    # javac resolves Java CALLS by type instead of by name. Measured against
+    # javac ground truth, the heuristic scored 93.8% recall but 5.0% precision;
+    # this replaces the one thing it is worst at and leaves the rest alone.
+    os.environ["GRAPH_JAVAC_RESOLVER"] = "true" if javac else "false"
+    if javac_timeout_seconds:
+        os.environ["GRAPH_JAVAC_TIMEOUT_SECONDS"] = str(int(javac_timeout_seconds))
+    if javac_batch_size:
+        os.environ["GRAPH_JAVAC_BATCH_SIZE"] = str(int(javac_batch_size))
 
     os.environ["GRAPH_EXTRACT_CACHE_ENABLED"] = "true" if extract_cache else "false"
     if extract_cache_dir:

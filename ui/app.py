@@ -223,31 +223,32 @@ with st.sidebar:
 
     st.divider()
     st.header("Optional subsystems")
-    scip = st.checkbox(
-        "SCIP precise resolution", value=False,
-        help="Type-precise CALLS from scip-python / scip-java instead of the "
-             "heuristic name matching. scip-java compiles the project via "
-             "Maven/Gradle, so it needs a working build (JDK, dependencies) in "
-             "this environment; on any failure it falls back to the heuristic "
-             "resolver for that language.",
+    javac = st.checkbox(
+        "javac resolver for Java CALLS", value=False,
+        help="Resolve Java calls with the real compiler instead of heuristic "
+             "name matching. Measured against javac ground truth on a 16.5k-file "
+             "Java repo, the heuristic scored 93.8% recall but 5.0% PRECISION — it "
+             "finds the right target and then emits every same-named candidate "
+             "beside it. javac has the type system.\n\n"
+             "Needs a JDK (javac + java on PATH) but NOT a build system: it "
+             "resolves in-repo types from -sourcepath alone, so no Maven/Gradle "
+             "is required. Runs BEFORE resolve, so it replaces that work rather "
+             "than adding to it. Falls back to the heuristic on any failure.\n\n"
+             "Java CALLS only — every other edge type and language is unaffected.",
     )
-    scip_only = st.checkbox(
-        "SCIP only (measurement run)", value=False, disabled=not scip,
-        help="Run discovery, extraction and SCIP indexing, then STOP — no "
-             "heuristic resolve, no derive. Use this to time what SCIP actually "
-             "costs on this repo without also paying for a full heuristic "
-             "resolve. The resulting graph is incomplete and is deliberately "
-             "NOT recorded as an up-to-date baseline, so the next real run "
-             "still re-ingests.",
+    javac_timeout = st.number_input(
+        "javac timeout (seconds)", min_value=60, max_value=86_400, value=3600, step=300,
+        disabled=not javac,
+        help="Wall-clock budget for the attribution pass. Pure type resolution — "
+             "no dependency download, no artifact build — but a large monorepo "
+             "still takes real time. On timeout Java falls back to the heuristic.",
     )
-    scip_java_timeout = st.number_input(
-        "scip-java timeout (seconds)", min_value=60, max_value=86_400, value=900, step=300,
-        disabled=not scip,
-        help="Wall-clock budget for the scip-java compile. This is your project's "
-             "Maven/Gradle build time — measure it with `mvn compile` first. If the "
-             "budget is exceeded the compile is KILLED and Java silently falls back "
-             "to the heuristic resolver, so the run pays the build cost and still "
-             "does the slow pass. Default 900s is too low for a large monorepo.",
+    javac_batch = st.number_input(
+        "javac batch size (files)", min_value=25, max_value=5_000, value=400, step=25,
+        disabled=not javac,
+        help="Files per javac task. Attribution holds the whole batch's symbol "
+             "table, so this is the MEMORY knob — if javac runs out of heap, "
+             "lower this rather than raising -Xmx.",
     )
     extract_cache = st.checkbox("Local extract cache", value=True)
     extract_cache_dir = st.text_input("Extract cache dir", value="./.cache/graph_extract_cache", disabled=not extract_cache)
@@ -346,9 +347,9 @@ if run_btn:
             checkpointing=checkpointing,
             checkpoint_root=checkpoint_root,
             streaming_ingest=streaming_ingest,
-            scip=scip,
-            scip_only=scip_only,
-            scip_java_timeout_seconds=float(scip_java_timeout),
+            javac=javac,
+            javac_timeout_seconds=float(javac_timeout),
+            javac_batch_size=int(javac_batch),
             extract_cache=extract_cache,
             extract_cache_dir=extract_cache_dir,
             cache_io_workers=int(cache_io_workers),

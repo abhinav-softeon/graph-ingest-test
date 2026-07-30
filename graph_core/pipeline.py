@@ -23,19 +23,18 @@ from .config import (
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
-    is_scip_only,
     is_streaming_ingest_enabled,
+    javac_batch_size,
+    javac_timeout_seconds,
 )
 from .discovery import FileInfo, discover, list_candidate_relpaths
 from .extract_cache import get_extract_cache
 from .ids import make_id
 from .models import Confidence, Edge, Node, Origin, RawRef, _clean
 from .resolver import Coverage, resolve
-from .scip_resolver import (
-    ScipReport,
-    finish_scip_java_job,
-    scip_resolve,
-    start_scip_java_job,
+from .javac_resolver import (
+    JavacReport,
+    resolve_java_calls,
 )
 from .store import GraphStore
 from .validator import EdgeStats, validate_graph
@@ -104,29 +103,28 @@ class IndexResult:
     coverage: dict[str, Coverage] = field(default_factory=dict)
     validation: dict = field(default_factory=dict)
     db_counts: dict = field(default_factory=dict)
-    scip: ScipReport = field(default_factory=ScipReport)
-    scip_java: ScipReport = field(default_factory=ScipReport)
+    javac: JavacReport = field(default_factory=JavacReport)
     # `roles: dict` lived here — role-classification diagnostics. The pass that
     # produced them was deleted in item #3, so every construction below passed
     # a hardcoded {}. Removed.
     # `dfg: DataflowResult` lived here — the DFG pass and its stats were
     # removed with dfg_json (MEMORY_ARCHITECTURE_PLAN.md item #10).
     stage_seconds: dict[str, float] = field(default_factory=dict)  # per-stage timing breakdown
-    # True when GRAPH_SCIP_ONLY skipped the heuristic resolve. The graph is then
-    # missing every non-SCIP edge, so callers must not record it as a valid
-    # up-to-date baseline — a later real run would otherwise diff against it and
-    # skip re-ingestion entirely (ingest/indexing.py's unchanged-hash short
-    # circuit). Purely advisory to the caller; nothing in this module reads it.
-    scip_only: bool = False
 
 
 def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
-               scip: bool = True, on_stage: OnStage = None,
+               javac: bool = False, on_stage: OnStage = None,
                candidate_files: list[str] | None = None,
                cancel_check: Callable[[], bool] | None = None,
                changed_files: list[str] | None = None,
                deleted_files: list[str] | None = None) -> IndexResult:
-    """``changed_files``/``deleted_files``: incremental-ingest mode. When either
+    """``javac``: resolve Java CALLS with javac instead of heuristic name
+    matching (graph_core/javac_resolver.py). Runs BEFORE the heuristic resolve
+    so it replaces that work rather than adding to it — when it succeeds, Java
+    CALLS refs are skipped in resolve() entirely instead of being resolved and
+    then thrown away. Falls back silently to the heuristic on any failure.
+
+    ``changed_files``/``deleted_files``: incremental-ingest mode. When either
     is given (even an empty list), ``wipe`` is ignored and only nodes belonging
     to those files are deleted from the namespace before the write below —
     every other file's previously-written nodes are left untouched. Extraction
@@ -135,20 +133,6 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     resolve/derive stages still see the whole codebase and cross-file edges
     stay globally correct."""
     incremental = changed_files is not None or deleted_files is not None
-    # Measurement mode: run everything up to and including SCIP, then stop —
-    # no heuristic resolve, no derive tail. SCIP's cost on a large Java repo is
-    # the number that decides whether precise resolution is affordable at all,
-    # and there is otherwise no way to observe it without also paying for a
-    # multi-hour heuristic resolve. The resulting graph is deliberately
-    # incomplete, so IndexResult.scip_only propagates out and the caller must
-    # NOT record it as a valid diff baseline (see ingest/indexing.py).
-    scip_only = is_scip_only()
-    if scip_only and not scip:
-        _log.warning(
-            "[graph_ingest][repo=%s] GRAPH_SCIP_ONLY set but SCIP is disabled — "
-            "nothing would resolve; ignoring scip_only", repo,
-        )
-        scip_only = False
     extract_cache = get_extract_cache()
     cache_io_workers = get_cache_io_workers()
     # Fire-and-forget cache writes (local-disk in this standalone app):
@@ -208,15 +192,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         on_stage("discovering", {"total_files": total_files})
     _mark("discovering")
 
-    # Kick off scip-java's compile as early as possible — it's a subprocess
-    # over the raw repo files, independent of anything extraction produces,
-    # so it can run in the background while the (CPU-bound) extraction loop
-    # below does its work instead of waiting until after resolve() as before.
     has_java = any(p.lower().endswith(".java") for p in all_relpaths)
-    java_job = None
-    if scip and has_java:
-        java_file_count = sum(1 for p in all_relpaths if p.lower().endswith(".java"))
-        java_job = start_scip_java_job(root, java_file_count)
 
     all_nodes: list[Node] = []
     all_edges: list[Edge] = []
@@ -267,17 +243,21 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # endpoints must already exist in Neo4j when edges are written) —
     # satisfied unconditionally now that stream_nodes always runs first, same
     # ordering guarantee as before, just no longer optional on either side.
-    # One edge type must be DEFERRED (held full, written only at the
-    # post-dataflow write point) because a later stage rewrites it in RAM and an
-    # eager write would leave stale rows in Neo4j:
-    #   - CALLS, only when SCIP may run: scip_python/scip_java replace whole
-    #     languages' CALLS post-resolve. With scip off (the common/prod path)
-    #     CALLS flush eagerly like everything else, and nothing is deferred at
-    #     all.
-    # PASSES used to be deferred here too (the DFG pass replaced the extractor's
-    # with its own); both the edges and that pass are gone — items #9 and #10.
+    #
+    # NOTHING is deferred any more. CALLS used to be held full in RAM whenever
+    # SCIP might run, because scip_python/scip_java replaced whole languages'
+    # CALLS *after* resolve — so the edges could not be written eagerly without
+    # leaving stale rows behind. That deferral was a latent OOM: on a repo whose
+    # CALLS are the overwhelming bulk, holding them all as full Edge objects
+    # through resolve defeats the entire streaming-writer design.
+    #
+    # The javac resolver avoids the problem by construction: it runs BEFORE
+    # resolve, and when it succeeds the heuristic simply never produces Java
+    # CALLS to be replaced. There is nothing to rewrite, so everything streams.
+    # PASSES was the other deferred type; both it and the DFG pass are gone
+    # (items #9/#10).
     stream_writer = True
-    defer_edge_types = {"CALLS"} if scip else set()
+    defer_edge_types: set[str] = set()
     streamed_ref_count = 0
 
     # A GRAPH_LOWRAM_DERIVE admission check lived here. The flag spilled the
@@ -588,6 +568,33 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # sets a node property any more (items #3/#8/#10), so nothing needs patching
     # back onto the already-written nodes — the final Neo4j state matches one
     # full write.
+    # Precise Java CALLS, BEFORE resolve. Ordering is the whole design: SCIP ran
+    # after resolve and replaced its output, which meant paying for the heuristic
+    # pass AND holding every CALLS edge in RAM waiting to be superseded. Running
+    # first means resolve simply never does the work (see skip_call_langs below),
+    # and nothing needs deferring.
+    #
+    # all_nodes is complete here — javac matches its bindings onto node ids by
+    # (fqn, param_count), and both survive the slim projection further down.
+    javac_report = JavacReport()
+    javac_owns_java = False
+    javac_edges: list[Edge] = []
+    if javac and has_java:
+        if on_stage:
+            on_stage("javac", {})
+        _beat("javac", "resolving Java calls with javac")
+        javac_edges, javac_report = resolve_java_calls(
+            all_nodes, root, repo,
+            timeout=javac_timeout_seconds(), batch_size=javac_batch_size(),
+        )
+        javac_owns_java = javac_report.available
+        if not javac_owns_java:
+            _log.info(
+                "[graph_ingest][repo=%s] javac unavailable (%s) — Java stays on "
+                "the heuristic resolver", repo, javac_report.reason,
+            )
+    _mark("javac")
+
     late_nodes: list[Node] = []
     if stream_nodes:
         store.bootstrap()
@@ -732,30 +739,17 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # degraded resolution precision at chunk boundaries, which is why
     # CONFIGURATION.md already said to keep it at 1.
     try:
-        if scip_only:
-            # Skip the heuristic pass entirely so the run's remaining wall clock
-            # is SCIP's alone. Everything before this point (discovery,
-            # extraction, the pre-resolve node/structural-edge write) still ran,
-            # which is what SCIP needs as input — and the scip-java compile was
-            # already started before extraction, so its overlap with extraction
-            # is measured exactly as it would be on a real run.
-            _beat("resolving", "SCIP-only mode — skipping heuristic resolution")
-            # len(refs_source), not len(all_refs): under streaming ingest the
-            # refs live in a disk-backed RefStream and all_refs is empty, so the
-            # latter would always log 0 on exactly the large runs this mode is
-            # for. RefStream implements __len__ (used for total_refs above).
-            _log.warning(
-                "[graph_ingest][repo=%s] GRAPH_SCIP_ONLY: skipping heuristic resolve "
-                "(%s ref(s) discarded). The resulting graph is INCOMPLETE and will "
-                "not be recorded as a diff baseline.", repo, len(refs_source),
-            )
-            extra_nodes, resolved_edges, coverage = [], [], {}
-        else:
-            extra_nodes, resolved_edges, coverage = resolve(
-                resolve_nodes, all_edges, refs_source, repo,
-                on_progress=_resolve_progress, cancel_check=cancel_check,
-                checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
-            )
+        extra_nodes, resolved_edges, coverage = resolve(
+            resolve_nodes, all_edges, refs_source, repo,
+            on_progress=_resolve_progress, cancel_check=cancel_check,
+            checkpoint_root=resolve_ckpt, edge_sink=resolve_sink,
+            # When javac resolved Java's calls, the heuristic must not resolve
+            # them too: its output would be discarded anyway, and producing it
+            # is the expensive part (a 16.5k-file Java repo generated 3.3M
+            # ambiguous CALLS at 0.1% precision). Skipping is what makes javac
+            # a replacement for the work rather than an addition to it.
+            skip_call_langs={"java"} if javac_owns_java else None,
+        )
     finally:
         # Drain and stop the background writer before anything that assumes the
         # writes are durable (or before propagating a failure/cancellation).
@@ -781,66 +775,25 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         "(%s retained in RAM)", repo, len(all_nodes), edge_stats.total, len(all_edges),
     )
 
-    # Stage 2 (precise): let SCIP own Python CALLS — type-precise and cross-file.
-    # The heuristic keeps non-Python CALLS (e.g. Java, where scip-java needs a
-    # build tool) plus every other edge type.
-    scip_report = ScipReport()
-    has_python = any(p.lower().endswith(".py") for p in all_relpaths)
-    lang_of = {n.id: n.lang for n in all_nodes}
-    scip_owns_python = False
-    if scip and has_python:
-        if on_stage:
-            on_stage("scip_python", {})
-        scip_edges, scip_report = scip_resolve(all_nodes, root, repo)
-        if scip_report.available:
-            scip_owns_python = True
-            all_edges = [
-                e for e in all_edges
-                if not (e.type == "CALLS" and lang_of.get(e.src) == "python")
-            ]
-            all_edges.extend(scip_edges)
-            coverage.pop("CALLS", None)  # superseded by SCIP for Python
-    _mark("scip_python")
-
-    # Same idea for Java via scip-java, gated on an actual Maven/Gradle build
-    # being present (scip-java compiles the project with a semanticdb-javac
-    # plugin to get type info, so it can't run without one). Falls back to the
-    # (package/import-aware) heuristic resolver on any failure — missing
-    # binary, no JDK, no network to fetch deps, compile errors, etc. The
-    # subprocess itself was already started above (before extraction); this
-    # just joins it, so most of its compile time overlaps with the extraction
-    # loop instead of running fully after it.
-    scip_java_report = ScipReport()
-    scip_owns_java = False
-    if java_job is not None:
-        def _java_heartbeat(elapsed: float, timeout: float) -> None:
-            if on_stage:
-                on_stage("scip_java", {"elapsed_s": elapsed, "timeout_s": timeout})
-        if on_stage:
-            on_stage("scip_java", {"elapsed_s": 0.0, "timeout_s": java_job.timeout})
-        scip_java_edges, scip_java_report = finish_scip_java_job(
-            all_nodes, java_job, repo, on_heartbeat=_java_heartbeat,
-        )
-        if scip_java_report.available:
-            scip_owns_java = True
-            all_edges = [
-                e for e in all_edges
-                if not (e.type == "CALLS" and lang_of.get(e.src) == "java")
-            ]
-            all_edges.extend(scip_java_edges)
-            coverage.pop("CALLS", None)  # superseded by SCIP for Java (and/or Python above)
-    _mark("scip_java")
-
-    # SCIP is the one stage that REPLACES edges already counted (it drops a
-    # whole language's heuristic CALLS and substitutes its own), so the running
-    # tallies can't be adjusted incrementally here — recount from the surviving
-    # list instead. Only reachable when SCIP actually ran and produced edges;
-    # on the default path (scip off) this never executes and the incremental
-    # counts stand.
-    if scip_owns_python or scip_owns_java:
+    # Merge the javac-resolved Java CALLS produced before resolve (see the
+    # javac stage above). They are full Edge objects, so the deferred-edge write
+    # a few lines below picks them up and persists them like any other; nothing
+    # here has to write them directly.
+    #
+    # No "replace what the heuristic produced" step exists, unlike the SCIP path
+    # this supersedes: resolve() was told to SKIP Java CALLS refs entirely when
+    # javac succeeded, so there is nothing stale to drop. That is the whole
+    # reason this runs first — replacing edges after the fact is what forced
+    # CALLS to be held in RAM through resolve.
+    if javac_owns_java and javac_edges:
         known_node_ids.update(n.id for n in all_nodes)
-        edge_stats.reset()
-        edge_stats.add(all_edges, known_node_ids)
+        edge_stats.add(javac_edges, known_node_ids)
+        all_edges.extend(javac_edges)
+        coverage.pop("CALLS", None)   # javac supersedes heuristic CALLS coverage
+        _log.info(
+            "[graph_ingest][repo=%s] javac: merged %s type-resolved Java CALLS edge(s)",
+            repo, len(javac_edges),
+        )
 
     if on_stage:
         on_stage("deriving", {})
@@ -919,10 +872,10 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
 
     _beat("deriving", "overrides from class hierarchy")
     override_edges = _derive_overrides(all_nodes, all_edges, shared_by_id, shared_parent_of)
-    if scip_owns_python:
-        override_edges = [e for e in override_edges if lang_of.get(e.src) != "python"]
-    if scip_owns_java:
-        override_edges = [e for e in override_edges if lang_of.get(e.src) != "java"]
+    # OVERRIDES is derived from EXTENDS/IMPLEMENTS + method name/arity, which the
+    # heuristic resolves accurately (unlike CALLS) — javac replaces call binding
+    # only, so these are kept for every language. The SCIP path used to drop them
+    # per-language because SCIP supplied its own; javac does not.
     _add_edges(override_edges)
 
     _beat("deriving", "package tree")
@@ -1008,10 +961,8 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         coverage=dict(coverage),
         validation=validation,
         db_counts=store.counts(repo),
-        scip=scip_report,
-        scip_java=scip_java_report,
+        javac=javac_report,
         stage_seconds=stage_seconds,
-        scip_only=scip_only,
     )
 
 

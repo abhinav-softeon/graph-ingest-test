@@ -17,11 +17,10 @@ from graph_core.config import (
     get_extract_cache_dir,
     get_zip_extract_workers,
     is_extract_cache_enabled,
-    is_scip_enabled,
-    is_scip_only,
+    is_javac_resolver_enabled,
     is_streaming_ingest_enabled,
     neo4j_config,
-    scip_java_timeout_seconds,
+    javac_timeout_seconds,
 )
 from graph_core.store import GraphStore
 from instrumentation.memory_sampler import MemorySampler
@@ -34,16 +33,15 @@ from .upload_utils import SUPPORTED_CODE_EXTS, materialize_uploaded_sources_from
 _log = get_logger(__name__)
 
 
-def _config_snapshot(project: str, repo_tag: str, scip: Optional[bool]) -> dict[str, Any]:
+def _config_snapshot(project: str, repo_tag: str, javac: Optional[bool]) -> dict[str, Any]:
     """Read every toggle graph_core/config.py currently exposes, fresh, so
     the run report accurately records what was actually active for this run
     (env vars may have been changed by the caller right before this call)."""
     return {
         "project": project,
         "repo_tag": repo_tag,
-        "scip": scip if scip is not None else is_scip_enabled(),
-        "scip_only": is_scip_only(),
-        "scip_java_timeout_s": scip_java_timeout_seconds(),
+        "javac": javac if javac is not None else is_javac_resolver_enabled(),
+        "javac_timeout_s": javac_timeout_seconds(),
         "extract_batch_size": extract_batch_size(),
         "extract_workers": extract_worker_count(),
         "checkpoint_root": checkpoint_root(),
@@ -59,7 +57,7 @@ def build_graph_from_zip(
     zip_path: str,
     project: str,
     *,
-    scip: Optional[bool] = None,
+    javac: Optional[bool] = None,
     on_stage: Optional[Callable[[str, dict], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     sample_interval_s: float = 0.5,
@@ -75,7 +73,7 @@ def build_graph_from_zip(
     run_id = uuid.uuid4().hex[:8]
     repo_tag = slugify_project(project)
     sampler = MemorySampler(interval_s=sample_interval_s)
-    config_snapshot = _config_snapshot(project, repo_tag, scip)
+    config_snapshot = _config_snapshot(project, repo_tag, javac)
     report = RunReport(run_id, project, config_snapshot, sampler, runs_dir=runs_dir, inner_on_stage=on_stage)
     sampler.start()
 
@@ -95,7 +93,7 @@ def build_graph_from_zip(
             tmp_root,
             repo_tag,
             store,
-            scip=config_snapshot["scip"],
+            javac=config_snapshot["javac"],
             on_stage=report.on_stage,
             candidate_relpaths=selected,
             cancel_check=cancel_check,
