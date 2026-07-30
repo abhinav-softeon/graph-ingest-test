@@ -83,20 +83,40 @@ def synthesize_polymorphic_calls_cypher(store, repo: str) -> int:
     it is no longer written on base edges either. ``evidence_line`` is, because
     ``exception_walk.py`` and ``two_agent``'s ``caller_evidence_lines`` read it.
     """
-    rows = store.read(
+    def _count() -> int:
+        rows = store.read(
+            "MATCH (:CodeNode {repo:$repo})-[r:CALLS]->() "
+            "WHERE r.strategy='polymorphic_dispatch' RETURN count(r) AS n",
+            repo=repo,
+        )
+        return int(rows[0]["n"]) if rows else 0
+
+    # Counted by difference rather than by RETURN, because the MERGE now runs
+    # inside CALL { ... } IN TRANSACTIONS, which cannot also return an aggregate.
+    before = _count()
+    # BATCHED. This used to be a single implicit transaction, which held every
+    # created relationship in transaction state until commit — on a wide
+    # hierarchy (27k OVERRIDES fanning out across all callers of each ancestor,
+    # and this pass is deliberately uncapped) that exhausts
+    # dbms.memory.transaction.total.max and aborts the whole query. Because the
+    # caller treats a failure here as fatal, that took the entire finished graph
+    # down with it. `derive_overrides_cypher` above was already batched this way;
+    # this one was not, and it is the pass with far more fan-out.
+    store._run(
         """
         MATCH (child:CodeNode {repo:$repo})-[:OVERRIDES]->(anc:CodeNode)
         MATCH (caller:CodeNode)-[ce:CALLS]->(anc)
         WHERE NOT (caller)-[:CALLS]->(child)
-        MERGE (caller)-[r:CALLS]->(child)
-        ON CREATE SET r.confidence='AMBIGUOUS', r.origin='DERIVED',
-                      r.strategy='polymorphic_dispatch',
-                      r.evidence_line=ce.evidence_line
-        RETURN count(r) AS created
+        CALL (caller, child, ce) {
+            MERGE (caller)-[r:CALLS]->(child)
+            ON CREATE SET r.confidence='AMBIGUOUS', r.origin='DERIVED',
+                          r.strategy='polymorphic_dispatch',
+                          r.evidence_line=ce.evidence_line
+        } IN TRANSACTIONS OF 1000 ROWS
         """,
         repo=repo,
     )
-    return int(rows[0]["created"]) if rows else 0
+    return max(0, _count() - before)
 
 
 # USES aggregation (component/module) is intentionally omitted: faithfully

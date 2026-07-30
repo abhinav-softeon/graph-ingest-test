@@ -118,10 +118,20 @@ public class CallOracle {
 
         PrintStream out = new PrintStream(new java.io.BufferedOutputStream(System.out, 1 << 20), false);
 
+        List<String> sourceRoots = deriveSourceRoots(root, sources);
+        String sourcePath = String.join(File.pathSeparator, sourceRoots);
+        System.err.println("[oracle] derived " + sourceRoots.size() + " source root(s):");
+        for (int i = 0; i < Math.min(sourceRoots.size(), 12); i++) {
+            System.err.println("           " + sourceRoots.get(i));
+        }
+        if (sourceRoots.size() > 12) {
+            System.err.println("           ... and " + (sourceRoots.size() - 12) + " more");
+        }
+
         for (int i = 0; i < sources.size(); i += batchSize) {
             List<File> batch = sources.subList(i, Math.min(i + batchSize, sources.size()));
             try {
-                processBatch(compiler, root, batch, out);
+                processBatch(compiler, root, sourcePath, batch, out);
             } catch (Throwable t) {
                 // A batch that javac cannot attribute at all (cyclic missing
                 // symbols, malformed source) must not abort the whole run —
@@ -146,8 +156,8 @@ public class CallOracle {
         System.err.println("unresolved         " + unresolved);
     }
 
-    static void processBatch(JavaCompiler compiler, Path root, List<File> batch, PrintStream out)
-            throws IOException {
+    static void processBatch(JavaCompiler compiler, Path root, String sourcePath,
+                              List<File> batch, PrintStream out) throws IOException {
         StandardJavaFileManager fm = compiler.getStandardFileManager(null, null, null);
         Iterable<? extends JavaFileObject> units = fm.getJavaFileObjects(
                 batch.toArray(new File[0]));
@@ -158,9 +168,11 @@ public class CallOracle {
                 "-proc:none",
                 // Attribution only — never write class files.
                 "-d", System.getProperty("java.io.tmpdir") + File.separator + "calloracle-out",
-                // The whole tree on the sourcepath is what lets javac resolve
-                // in-repo types whose files are not in THIS batch.
-                "-sourcepath", root.toString(),
+                // The DERIVED source roots (see deriveSourceRoots) — not the repo
+                // root. This is what lets javac resolve in-repo types whose files
+                // are not in this batch; with the wrong root nothing cross-batch
+                // resolves and coverage collapses to whatever batching grouped.
+                "-sourcepath", sourcePath,
                 "-nowarn",
                 // Missing external deps produce a flood of "cannot find symbol";
                 // this keeps javac from bailing after the default 100 errors.
@@ -198,7 +210,11 @@ public class CallOracle {
 
         for (CompilationUnitTree cu : asts) {
             filesAttributed++;
-            final String file = relativize(cu.getSourceFile().toUri().getPath());
+            // REPO-RELATIVE, matching what the graph stores in evidence_file
+            // (discovery.FileInfo.relpath). An absolute path here would be a
+            // path into the temp extraction dir — meaningless once the run ends,
+            // and inconsistent with every heuristic edge in the same graph.
+            final String file = relRoot(root, relativize(cu.getSourceFile().toUri().getPath()));
             // Emit EVERY attributed file, not just those containing calls. A
             // consumer needs to know which files javac actually resolved so it
             // can defer to the heuristic on the rest — a file with zero calls is
@@ -206,7 +222,7 @@ public class CallOracle {
             // wrongly mark it uncovered. Prefixed so it is trivially separable
             // from call rows in one pass.
             out.print("@FILE\t");
-            out.println(relRoot(root, file));
+            out.println(file);
             new TreePathScanner<Void, Void>() {
                 String enclosingClass = "";
                 String enclosingMethod = "";
@@ -296,6 +312,71 @@ public class CallOracle {
             return a.substring(r.length());
         }
         return a;
+    }
+
+    /**
+     * Source roots to hand javac on -sourcepath, derived from each file's own
+     * package declaration.
+     *
+     * This is not a nicety — it decides how much javac can resolve at all. javac
+     * finds a type `com.foo.Bar` by looking for `<sourcepath>/com/foo/Bar.java`.
+     * Passing the REPO ROOT fails for the standard Maven layout, where the file
+     * actually lives at `src/main/java/com/foo/Bar.java`: nothing is found, and
+     * only types that happen to fall in the same compilation batch resolve. That
+     * silently caps coverage at "whatever the batching accidentally grouped
+     * together" — which looks like partial attribution but is really a
+     * misconfiguration.
+     *
+     * So: for each file, read its `package a.b.c;` and strip `a/b/c/File.java`
+     * off the end of its path. What remains is a real source root. Collecting
+     * the distinct set handles multi-module repos (many nested src/main/java
+     * directories) with no assumptions about layout. Only the header is read,
+     * up to the package line, so this is cheap even over tens of thousands
+     * of files.
+     */
+    static java.util.List<String> deriveSourceRoots(Path root, List<File> sources) {
+        java.util.Set<String> roots = new java.util.LinkedHashSet<>();
+        java.util.regex.Pattern pkgPat = java.util.regex.Pattern.compile(
+                "^\\s*package\\s+([\\w.]+)\\s*;");
+        for (File f : sources) {
+            String pkg = null;
+            try (java.io.BufferedReader br = Files.newBufferedReader(
+                    f.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                String line;
+                int scanned = 0;
+                while ((line = br.readLine()) != null && scanned++ < 200) {
+                    java.util.regex.Matcher m = pkgPat.matcher(line);
+                    if (m.find()) { pkg = m.group(1); break; }
+                    // A type declaration means there was no package: default
+                    // package, so the file's own directory is the root.
+                    String t = line.trim();
+                    if (t.startsWith("class ") || t.startsWith("public ")
+                            || t.startsWith("interface ") || t.startsWith("enum ")) {
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {
+                continue;
+            }
+            String dir = f.getAbsoluteFile().getParent();
+            if (dir == null) continue;
+            dir = dir.replace('\\', '/');
+            if (pkg == null || pkg.isEmpty()) {
+                roots.add(dir);
+                continue;
+            }
+            String suffix = "/" + pkg.replace('.', '/');
+            if (dir.endsWith(suffix)) {
+                roots.add(dir.substring(0, dir.length() - suffix.length()));
+            } else {
+                // Path does not mirror the package (generated sources, odd
+                // layout). Nothing reliable to strip — skip rather than add a
+                // bogus root that would slow every lookup down.
+                continue;
+            }
+        }
+        if (roots.isEmpty()) roots.add(root.toString().replace('\\', '/'));
+        return new ArrayList<>(roots);
     }
 
     static String relativize(String uriPath) {

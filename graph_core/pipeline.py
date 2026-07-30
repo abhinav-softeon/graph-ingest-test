@@ -718,11 +718,13 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             to_write = [e for e in batch if e.type not in defer_edge_types]
             if new_nodes or to_write:
                 _enqueue_write(new_nodes, to_write)
-            # Retain almost nothing (item #2b). A deferred edge is held in FULL
-            # because it hasn't been written yet and a later stage rewrites it
-            # (CALLS under SCIP). A structural edge is retained SLIM because the
-            # derive passes re-read it. Everything else — the bulk — is durable
-            # in Neo4j as of the enqueue above and is simply dropped.
+            # Retain almost nothing (item #2b). A structural edge is retained
+            # SLIM because the derive passes re-read it. Everything else — the
+            # bulk — is durable in Neo4j as of the enqueue above and is simply
+            # dropped. The defer branch below is now dead (defer_edge_types is
+            # empty): it existed so SCIP could rewrite CALLS after resolve, which
+            # meant holding all of them full. Kept as the one-line hook rather
+            # than removed, since any future post-resolve edge rewrite needs it.
             keep: list = []
             for e in batch:
                 if e.type in defer_edge_types:
@@ -838,15 +840,20 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # at the end.
     new_edges: list[Edge] | None = None
     if stream_writer:
+        # Anything still a full Edge rather than a SlimEdge has not been written
+        # yet. With nothing deferred any more, that is exactly the javac-resolved
+        # CALLS merged above — they bypass the resolve sink (they never went
+        # through resolve) so this is where they land.
         pending = [e for e in all_edges if isinstance(e, Edge)]
         if pending:
-            _beat("deriving", f"writing {len(pending)} deferred edge(s)")
-            store.write_edges(pending, on_batch=_write_beat("deriving", "deferred edges written"))
+            _beat("deriving", f"writing {len(pending)} unwritten edge(s)")
+            store.write_edges(pending, on_batch=_write_beat("deriving", "edges written"))
         all_edges = [e.to_slim() if isinstance(e, Edge) else e for e in all_edges]
         new_edges = []
         _log.info(
-            "[graph_ingest][repo=%s] streaming writer: wrote %s deferred edge(s) post-dataflow; "
-            "all %s pre-derive edge(s) now durable in Neo4j and slim in RAM",
+            "[graph_ingest][repo=%s] streaming writer: wrote %s previously-unwritten "
+            "edge(s) (javac CALLS, if any); all %s pre-derive edge(s) now durable "
+            "in Neo4j and slim in RAM",
             repo, len(pending), len(all_edges),
         )
 
@@ -974,9 +981,27 @@ def _run_polymorphic_cypher(store, repo: str, edge_stats, _beat) -> int:
     into the running tallies so validate_graph still reports the whole graph.
 
     Runs here rather than in derive because it needs the written graph; that is
-    also what lets it replace a Python pass over the full edge set."""
+    also what lets it replace a Python pass over the full edge set.
+
+    Failures are CAUGHT, not propagated. This pass is an enrichment: it adds
+    already-derivable edges (caller -> each override of a called ancestor) on top
+    of a graph that is complete and durable before it starts. Letting it raise
+    meant a first ingest treated it as a fatal error and wiped the entire
+    namespace — observed live, destroying a finished 15M-edge graph over an
+    optional step. Its own most likely failure is resource exhaustion inside one
+    huge Cypher transaction, which says nothing about the validity of what was
+    already written. A missing polymorphic layer degrades review quality
+    slightly; losing the graph loses the whole run."""
     _beat("writing_graph", "polymorphic dispatch CALLS (in-database)")
-    n = synthesize_polymorphic_calls_cypher(store, repo)
+    try:
+        n = synthesize_polymorphic_calls_cypher(store, repo)
+    except Exception as exc:  # noqa: BLE001 - deliberately non-fatal, see above
+        _log.warning(
+            "[graph_ingest][repo=%s] polymorphic dispatch FAILED (%s) — continuing "
+            "without it; the graph is complete apart from these synthetic edges",
+            repo, exc,
+        )
+        return 0
     edge_stats.add_count("CALLS", n)
     _log.info(
         "[graph_ingest][repo=%s] polymorphic dispatch: %s synthetic CALLS edge(s) created in-database",
