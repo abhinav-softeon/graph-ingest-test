@@ -79,12 +79,17 @@ def _run(**kwargs):
 
 
 @pytest.mark.skipif(not os.path.isdir(_CORPUS), reason="java_sample corpus missing")
-def test_overrides_derived_from_the_resolved_hierarchy():
+def test_overrides_derived_from_the_resolved_hierarchy(monkeypatch):
     """The regression guard for the worst bug this project has had: EXTENDS and
     IMPLEMENTS are NOT emitted by the extractors — they only come into existence
     inside resolve(). If the edge sink stops retaining them, _derive_overrides
     sees an empty class hierarchy and silently emits zero OVERRIDES, with no
-    error anywhere."""
+    error anywhere.
+
+    The polymorphic pass is default-OFF now (config.polymorphic_dispatch_enabled),
+    so it is enabled explicitly here: what this test guards is that OVERRIDES
+    reaches it, which is only observable when it actually runs."""
+    monkeypatch.setenv("GRAPH_POLYMORPHIC_DISPATCH", "true")
     store, _ = _run()
     by_type: dict[str, int] = {}
     for (etype, _src, _dst) in store.edges:
@@ -97,6 +102,19 @@ def test_overrides_derived_from_the_resolved_hierarchy():
     )
     assert any("polymorphic_dispatch" in q for q in store.queries), (
         "the in-database polymorphic pass was never invoked"
+    )
+
+
+@pytest.mark.skipif(not os.path.isdir(_CORPUS), reason="java_sample corpus missing")
+def test_polymorphic_dispatch_is_off_by_default(monkeypatch):
+    """The 53.6%-of-all-CALLS pass must stay opt-in. Every one of its edges is
+    AMBIGUOUS, and any consumer filtering to strategy='bytecode' excludes them —
+    so if this ever flips back to default-on, half the write volume returns for
+    rows most queries deliberately ignore."""
+    monkeypatch.delenv("GRAPH_POLYMORPHIC_DISPATCH", raising=False)
+    store, _ = _run()
+    assert not any("polymorphic_dispatch" in q for q in store.queries), (
+        "polymorphic dispatch ran without GRAPH_POLYMORPHIC_DISPATCH being set"
     )
 
 

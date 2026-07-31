@@ -33,7 +33,6 @@ NODE_LABELS = {
 EDGE_TYPES = {
     "CONTAINS",
     "BELONGS_TO",  # node -> Module ownership relation
-    "DEFINES",      # semantic ownership/provenance (file/class defines symbol)
     "IMPORTS",
     "CALLS",
     "INSTANTIATES",
@@ -73,6 +72,80 @@ EDGE_TYPES = {
     "REQUIRES_AUTH",    # Function/Class -> Policy (auth requirement)
     "ENFORCES_POLICY",  # Function/Class -> Policy (authorization rule)
 }
+
+
+# Emitted by the extractors but NOT resolved and NOT written. Security/correctness
+# analysis reads function source anyway, so an edge that only restates what is
+# visible in that source is pure write cost.
+#
+# The rule used to pick these: keep an edge if it either routes the analysis to
+# code worth reading, or carries a fact the reader CANNOT see in the one function
+# it has open. Dropped here are the ones that fail both tests — a `throws` clause,
+# a parameter type and a generic argument are all sitting in the signature the
+# model is about to read.
+#
+# KEPT deliberately, and why:
+#   CALLS / CALLS_EXTERNAL  the paths, and the sinks they end at
+#   READS / WRITES          taint crossing methods with NO call between them
+#   OF_TYPE                 a field's declared type (Connection vs InputStream),
+#                           declared elsewhere in the class than the reader looks
+#   OVERRIDES / EXTENDS / IMPLEMENTS / INSTANTIATES   which implementation runs
+#   CONTAINS                the scope chain; resolve and derive both read it
+#   ANNOTATED_WITH / EXPOSES   endpoint discovery = the taint SOURCES
+#
+# These stay in EDGE_TYPES on purpose. assert_edge guards Cypher interpolation,
+# so delisting a type that something still emits turns a silent no-op into a
+# write-time crash. Filtering instead of delisting is why this is reversible:
+# empty the set and the edges come back with no other change.
+#
+# Filtered at two choke points rather than at ~20 emission sites across six
+# extractors: store.write_edges (catches everything, including edges created
+# inside resolve like the REFERENCES fallback) and resolver._resolve_one_ref
+# (skips the resolution work too, not just the write). None of these types are in
+# pipeline's _RETAINED_EDGE_TYPES, so no derive pass can be reading them.
+#
+# Caveat: the in-process edge_stats/coverage tallies still count what was
+# produced, so they over-report against store.counts(). db_counts is the truth.
+DROPPED_EDGE_TYPES = frozenset({
+    "RETURNS",          # in the signature being read
+    "HAS_TYPE",         # ditto
+    "HAS_GENERIC",      # ditto
+    "THROWS",           # in the throws clause / throw statement being read
+    "CATCHES",          # in the catch block being read
+    "REFERENCES",       # "related somehow" — the resolver's lowest-trust fallback
+    "USES",             # component-level aggregation, too coarse to act on
+    "BELONGS_TO",       # Module ownership; modules are not part of this analysis
+    "RE_EXPORTS",       # JS/TS export forwarding
+    "CALLS_API",        # outbound HTTP
+    "EMITS_EVENT",      # event/queue layer, unused here
+    "CONSUMES_EVENT",
+    "REQUIRES_AUTH",    # policy layer, unused here
+    "ENFORCES_POLICY",
+    # IMPORTS: one edge per import statement, and NOTHING reads them back.
+    # resolve() builds its import maps from the RawRef list directly (see the
+    # wildcard_pkgs_by_file / import_fqns_by_file loop near the top of resolve),
+    # which happens before and independently of edge emission — verified by
+    # running the same cross-package call resolution with and without this type
+    # dropped and diffing the result: identical, still `receiver_type_hint+arity`.
+    # So the imports_qualified/imports strategies are unaffected. For LLM context
+    # the import lines come from the file source, not from graph edges.
+    "IMPORTS",
+})
+
+# Annotations that are pure compiler/tooling directives. ANNOTATED_WITH is KEPT
+# (it is how endpoints are discovered — @WebService/@WebMethod/@RequestMapping —
+# and endpoints are the taint SOURCES), but @Override alone is typically the
+# largest single annotation in a Java codebase and carries no signal any analysis
+# would act on. Deliberately conservative: only directives that tell a compiler
+# or linter something, never anything describing behavior, lifecycle or security.
+NOISE_ANNOTATIONS = frozenset({
+    "Override",
+    "SuppressWarnings",
+    "SafeVarargs",
+    "FunctionalInterface",
+    "Generated",
+    "SuppressFBWarnings",
+})
 
 
 def assert_label(label: str) -> str:

@@ -22,6 +22,8 @@ from .config import checkpoint_root as get_checkpoint_root
 from .config import (
     bytecode_class_roots,
     bytecode_min_match_rate,
+    external_all_calls,
+    polymorphic_dispatch_enabled,
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
@@ -601,6 +603,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             class_roots=bytecode_class_roots() or None,
             java_files_seen=sum(1 for p in all_relpaths if p.lower().endswith(".java")),
             min_match_rate=bytecode_min_match_rate(),
+            include_external_other=external_all_calls(),
         )
         if bytecode_report.available:
             bytecode_owns = bytecode_report.attributed_files
@@ -1063,7 +1066,20 @@ def _run_polymorphic_cypher(store, repo: str, edge_stats, _beat) -> int:
     optional step. Its own most likely failure is resource exhaustion inside one
     huge Cypher transaction, which says nothing about the validity of what was
     already written. A missing polymorphic layer degrades review quality
-    slightly; losing the graph loses the whole run."""
+    slightly; losing the graph loses the whole run.
+
+    Default OFF (config.polymorphic_dispatch_enabled). It measured 53.6% of one
+    repo's entire CALLS set, all AMBIGUOUS, and any consumer filtering to
+    strategy='bytecode' excludes every one of them anyway — so for those the rows
+    are pure write cost. The same expansion is a query-time join over OVERRIDES,
+    which is already in the graph."""
+    if not polymorphic_dispatch_enabled():
+        _log.info(
+            "[graph_ingest][repo=%s] polymorphic dispatch SKIPPED "
+            "(GRAPH_POLYMORPHIC_DISPATCH off) — expand caller->override at query "
+            "time over OVERRIDES instead", repo,
+        )
+        return 0
     _beat("writing_graph", "polymorphic dispatch CALLS (in-database)")
     try:
         n = synthesize_polymorphic_calls_cypher(store, repo)

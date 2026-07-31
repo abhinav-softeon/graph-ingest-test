@@ -33,8 +33,10 @@ from .config import resolve_checkpoint_seconds
 from .external_api import (
     classify_call, external_display, external_id, external_key,
 )
+from .config import name_match_max_candidates
 from .ids import make_id
 from .models import Confidence, Edge, IngestCancelled, Node, Origin, RawRef
+from .schema import DROPPED_EDGE_TYPES, NOISE_ANNOTATIONS
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
@@ -174,6 +176,9 @@ def resolve(
                 funcs_by_name[n.name].append(n)
         if n.label == "Class":
             classes_by_name[n.name].append(n)
+
+    # Read once, not per ref: resolve() handles millions of them.
+    _name_cap = name_match_max_candidates()
 
     # Containment: child -> parent, and class -> {method_name: [nodes]}.
     parent_of: dict[str, str] = {}
@@ -611,6 +616,23 @@ def resolve(
             out_edges.append(make_edge(ref, wanted[0].id, confidence, strategy=strategy))
             cov.resolved += 1
         elif len(wanted) > 1:
+            # AMBIGUITY CAP, bare-name tier only. A bare name matching N same-named
+            # declarations emits N edges of which exactly ONE can be right, so the
+            # fan-out is (N-1)/N false by construction. Measured: a JS helper named
+            # `specialcheck` declared in ~20 files, called from ~11,432 sites, was
+            # producing ~228k edges to carry ~11k real ones.
+            #
+            # Scoped to strategy `name*` deliberately. That is the tier with no
+            # scope, no import and no receiver-type evidence — the ~5%-precision
+            # bucket. same_scope/same_file/imports/receiver_type hits are
+            # trustworthy and are never capped, however many candidates they have.
+            #
+            # Counted as unresolved, which is the honest bucket: the name does
+            # exist in repo, resolution just could not pin it.
+            if (_name_cap and strategy.startswith("name")
+                    and len(wanted) > _name_cap):
+                cov.unresolved += 1
+                return
             for c in wanted:
                 out_edges.append(
                     make_edge(ref, c.id, _CONF_AMBIGUOUS, strategy=strategy)
@@ -628,7 +650,22 @@ def resolve(
         the same way _extract_one already isolates one bad file during
         extraction. `continue` in the original loop becomes `return` here;
         no matching/resolution logic itself changed."""
+        # Dropped types cost nothing beyond the RawRef that already exists: no
+        # candidate lookup, no Endpoint/Event/Policy node synthesis, no edge.
+        # store.write_edges filters them too (it has to — the REFERENCES fallback
+        # below is created while resolving a CALLS ref, not a REFERENCES one), but
+        # returning here is what avoids the resolution work. See
+        # schema.DROPPED_EDGE_TYPES.
+        if ref.type in DROPPED_EDGE_TYPES:
+            return
         if ref.type == "ANNOTATED_WITH":
+            # @Override and friends: no Annotation node, no edge. See
+            # schema.NOISE_ANNOTATIONS — real annotations still resolve, this only
+            # skips compiler/linter directives, of which @Override is usually the
+            # single highest-volume annotation in a Java repo.
+            if ref.target_name in NOISE_ANNOTATIONS:
+                cov.external += 1
+                return
             aid = annotation_ids.get(ref.target_name)
             if aid is None:
                 aid = make_id(repo, f"@{ref.target_name}", "annotation")

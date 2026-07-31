@@ -134,19 +134,30 @@ def ensure_graph_indexed(
         })
         return index_result
     except Exception:
-        # Leave GraphMeta's status as "indexing" rather than "ready" on
-        # failure so a subsequent call never mistakes a half-written graph
-        # for a valid up-to-date one; it will simply re-ingest next time.
+        # Mark the namespace "error" so a subsequent call never mistakes a
+        # half-written graph for a valid up-to-date one; it will simply
+        # re-ingest next time.
+        #
+        # The partial graph is deliberately KEPT rather than wiped, so a failed
+        # build can be inspected instead of vanishing — which is the whole point
+        # of an experimentation harness. This is safe without a wipe because the
+        # status flag alone already fences it off:
+        #   * has_baseline (above) requires status == "ready", so a partial
+        #     graph is never used as an incremental diff baseline;
+        #   * the next attempt therefore computes wipe=not has_baseline -> True,
+        #     and index_repo clears the namespace before writing anything.
+        # So the partial nodes are cleaned up by the next run regardless; wiping
+        # here only destroyed the evidence early.
         try:
             store.upsert_graph_meta(repo_tag, {"status": "error"})
         except Exception:  # noqa: BLE001
             pass
         if not has_baseline:
-            try:
-                store.wipe(repo_tag)
-                logfn(f"[graph_build] {repo_tag} first-ingest attempt failed/cancelled — deleted partial graph")
-            except Exception as wipe_exc:  # noqa: BLE001
-                _log.warning("[graph_build] %s: failed to wipe partial first-ingest graph: %s", repo_tag, wipe_exc)
+            logfn(
+                f"[graph_build] {repo_tag} first-ingest attempt failed/cancelled — "
+                f"partial graph left in place for inspection (status=error; "
+                f"the next build wipes and re-ingests it)"
+            )
         raise
     finally:
         store.release_lock(repo_tag, token)

@@ -16,7 +16,7 @@ from neo4j import GraphDatabase
 
 from .config import Neo4jConfig, get_write_batch_size, get_write_workers
 from .models import Edge, Node
-from .schema import SHARED_LABEL, assert_edge, assert_label
+from .schema import DROPPED_EDGE_TYPES, SHARED_LABEL, assert_edge, assert_label
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
@@ -224,9 +224,19 @@ class GraphStore:
         # copies), convert to props dicts lazily via _write_in_batches.
         # ``on_batch(written, total)``: see write_nodes — keeps the job
         # heartbeat alive through a long write.
+        # THE choke point for schema.DROPPED_EDGE_TYPES. Filtering here rather
+        # than at each extractor catches every producer, including edges built
+        # inside resolve() (the REFERENCES fallback) and the derive passes, so no
+        # emission site can leak one back in. See schema.DROPPED_EDGE_TYPES.
         by_type: dict[str, list[Edge]] = defaultdict(list)
+        dropped = 0
         for e in edges:
+            if e.type in DROPPED_EDGE_TYPES:
+                dropped += 1
+                continue
             by_type[assert_edge(e.type)].append(e)
+        if dropped:
+            _log.debug("[graph_store] write_edges: skipped %s edge(s) of dropped type(s)", dropped)
         t0 = time.time()
         batch = get_write_batch_size()
 

@@ -80,6 +80,69 @@ def bytecode_class_roots() -> list[str]:
     return [p for p in raw.split(os.pathsep) if p.strip()] if raw else []
 
 
+def name_match_max_candidates() -> int:
+    """Cap on how many candidates a BARE-NAME match may fan out to (default 5).
+
+    A bare name matching N same-named declarations produces N edges of which one
+    at most is correct — (N-1)/N false by construction. Above this cap the ref is
+    recorded as unresolved instead, trading a small recall loss inside the
+    lowest-trust tier for a large precision gain.
+
+    Only strategy `name*` is capped — no scope, no import, no receiver type, the
+    ~5%-precision bucket. same_scope/same_file/imports/receiver_type matches are
+    never capped no matter how many candidates they have.
+
+    GRAPH_NAME_MATCH_MAX_CANDIDATES=0 disables the cap entirely."""
+    try:
+        v = int(os.environ.get("GRAPH_NAME_MATCH_MAX_CANDIDATES", "5"))
+    except ValueError:
+        return 5
+    return v if v >= 0 else 5
+
+
+def polymorphic_dispatch_enabled() -> bool:
+    """Materialize caller -> every-override CALLS edges in the database.
+
+    Default OFF. Measured at 2,593,900 edges — 53.6% of one repo's entire CALLS
+    set — every one of them AMBIGUOUS/DERIVED, and the pass is deliberately
+    uncapped so a wide hierarchy multiplies without bound.
+
+    Off costs nothing as long as consumers do the expansion at query time, which
+    is cheaper and equally complete because OVERRIDES is already in the graph:
+
+        MATCH (caller)-[:CALLS {strategy:'bytecode'}]->(m:Function)
+        OPTIONAL MATCH (impl:Function)-[:OVERRIDES]->(m)
+        RETURN caller, m, collect(impl) AS possible_impls
+
+    Turn it back on only if something needs the edges pre-materialized — note
+    that any consumer filtering to strategy='bytecode' is already excluding
+    them, so for those the stored rows are pure cost.
+
+    GRAPH_POLYMORPHIC_DISPATCH=1/true to enable."""
+    env = os.environ.get("GRAPH_POLYMORPHIC_DISPATCH", "false").strip().lower()
+    return env in ("1", "true", "yes", "on")
+
+
+def external_all_calls() -> bool:
+    """Emit CALLS_EXTERNAL for EVERY out-of-repo call, not just database work.
+
+    Off by default. With it off, a call the classifier does not recognise is
+    dropped (`external_calls` counts it and nothing is written) — which is
+    correct for `inputStream.close()` but also silently loses every non-database
+    sink: Runtime.exec, FileOutputStream, ObjectInputStream.readObject,
+    response.getWriter().write. Those are invisible to any analysis seeded from
+    sinks, and an LLM never sees them because nothing routes it to the function.
+
+    With it on, unrecognised targets classify as external_api.EXTERNAL_OTHER.
+    The External NODE count stays small (shared, keyed owner#method); the EDGE
+    count does not — most of a repo's invocations leave the repo. Enable it when
+    you want completeness over volume, or extend the classifier instead.
+
+    GRAPH_EXTERNAL_ALL_CALLS=1/true."""
+    env = os.environ.get("GRAPH_EXTERNAL_ALL_CALLS", "false").strip().lower()
+    return env in ("1", "true", "yes", "on")
+
+
 def bytecode_min_match_rate() -> float:
     """Quality floor for the bytecode pass (default 0.5).
 

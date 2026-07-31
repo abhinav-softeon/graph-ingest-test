@@ -47,7 +47,7 @@ from .bytecode.classfile import (
     type_name,
 )
 from .external_api import (
-    classify_call, external_display, external_id, external_key,
+    classify_external, external_display, external_id, external_key,
 )
 from .bytecode.matcher import (
     MatchStats, NodeIndex, binary_to_source_fqn, caller_needs_synthesis, should_skip_method,
@@ -220,6 +220,7 @@ def resolve_java_bytecode(
     class_roots: list[str] | None = None,
     java_files_seen: int = 0,
     min_match_rate: float = 0.5,
+    include_external_other: bool = False,
 ) -> tuple[list[Edge], list[Node], BytecodeReport]:
     """Read call and field edges out of compiled bytecode.
 
@@ -318,9 +319,10 @@ def resolve_java_bytecode(
                 # them. This runs once per invocation (3.8M times on the measured
                 # repo), which is where per-call string work actually costs.
                 ret = inv.descriptor.rpartition(")")[2]
-                kind = classify_call(
+                kind = classify_external(
                     inv.owner, inv.name,
                     type_name(ret) if ret[:1] == "L" else "",
+                    include_other=include_external_other,
                 )
                 if kind:
                     eid = external_id(inv.owner, inv.name)
