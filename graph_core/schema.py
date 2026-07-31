@@ -22,6 +22,12 @@ NODE_LABELS = {
     "Event",        # an event/topic/queue semantic node
     "Policy",       # auth/policy contract node (role/scope/policy marker)
     "Table",        # a SQL table (CREATE TABLE); columns stored as JSON property
+    # A call target OUTSIDE this repo, kept as a fact rather than discarded.
+    # Keyed by owner type + method (e.g. `java.sql.Connection#close`) and
+    # carrying a `kind` (db_acquire/db_execute/db_release/...). Has no file or
+    # source position by construction — it is not code we hold. validate_graph
+    # already guards its position checks on truthiness, so that is safe.
+    "External",
 }
 
 EDGE_TYPES = {
@@ -51,6 +57,12 @@ EDGE_TYPES = {
     # Flexible dependency layer (additive, lower-trust by default)
     "REFERENCES",   # generic symbol use when stricter typing is unavailable
     "USES",         # higher-level/component dependency
+    # Function -> External. A call whose target is a library/JDK type, so no
+    # in-repo Function can ever be the destination. Previously such calls were
+    # either fanned out across every same-named method (100% false) or, after
+    # the external-receiver fix, dropped entirely — losing the fact that the
+    # function touches a database/connection at all.
+    "CALLS_EXTERNAL",
     # "PASSES" (argument/data propagation hint) was removed — written by the
     # DFG pass, read by nothing. The pass itself is gone too (item #10).
     "AUTOWIRED",    # dependency-injection wiring relation

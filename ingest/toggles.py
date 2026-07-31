@@ -28,6 +28,8 @@ def apply_ingestion_toggles(
     javac: bool = False,
     javac_timeout_seconds: Optional[float] = None,
     javac_batch_size: Optional[int] = None,
+    bytecode: bool = False,
+    bytecode_class_roots: Optional[str] = None,
     extract_cache: bool = True,
     extract_cache_dir: Optional[str] = None,
     cache_io_workers: Optional[int] = None,
@@ -68,6 +70,13 @@ def apply_ingestion_toggles(
         os.environ["GRAPH_JAVAC_TIMEOUT_SECONDS"] = str(int(javac_timeout_seconds))
     if javac_batch_size:
         os.environ["GRAPH_JAVAC_BATCH_SIZE"] = str(int(javac_batch_size))
+
+    # Bytecode is Tier 0: javac re-derives the bindings, a class file already
+    # carries them. It also recovers lambdas, anonymous inner classes and static
+    # initializers, which have no source declaration for tree-sitter to find.
+    os.environ["GRAPH_BYTECODE_RESOLVER"] = "true" if bytecode else "false"
+    if bytecode_class_roots:
+        os.environ["GRAPH_BYTECODE_CLASS_ROOTS"] = bytecode_class_roots
 
     os.environ["GRAPH_EXTRACT_CACHE_ENABLED"] = "true" if extract_cache else "false"
     if extract_cache_dir:

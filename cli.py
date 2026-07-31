@@ -48,6 +48,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _bool_flag(p, "javac", False,
                "Resolve Java CALLS with javac (type-precise) instead of heuristic name matching",
                "Disable the javac resolver (default, heuristic resolver only)")
+    _bool_flag(p, "bytecode", False,
+               "Read Java CALLS/READS/WRITES from compiled .class files and jars "
+               "(exact bindings; also recovers lambdas, anonymous classes and "
+               "static initializers as nodes)",
+               "Disable the bytecode resolver (default)")
     _bool_flag(p, "extract-cache", True, "Enable local-disk extract cache (default)", "Disable extract cache")
     p.add_argument("--extract-cache-dir", default=None, help="Local dir for the extract cache (default ./.cache/graph_extract_cache)")
 
@@ -91,6 +96,7 @@ def main(argv=None) -> int:
         checkpoint_root=args.checkpoint_root,
         streaming_ingest=args.streaming_ingest,
         javac=args.javac,
+        bytecode=args.bytecode,
         extract_cache=args.extract_cache,
         extract_cache_dir=args.extract_cache_dir,
         cache_io_workers=args.cache_io_workers,

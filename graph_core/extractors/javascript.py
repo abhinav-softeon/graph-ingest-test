@@ -198,6 +198,148 @@ def _scope_calls(body):
     return out
 
 
+def _scope_declarators(body):
+    """variable_declarator nodes in this function's own scope.
+
+    Same scope discipline as _scope_calls: a `const x = new Foo()` inside a
+    nested callback belongs to that callback, and hoisting its type here would
+    shadow an outer `x` of a different type.
+    """
+    out = []
+    if body is None:
+        return out
+    stack = list(body.children)
+    while stack:
+        n = stack.pop()
+        if n.type in _SCOPE_BOUNDARY:
+            continue
+        if n.type == "variable_declarator":
+            out.append(n)
+        stack.extend(n.children)
+    return out
+
+
+def _new_expression_type(src: bytes, value_node) -> str:
+    """Constructor name of a `new Foo()` initializer, else ''.
+
+    This is the only type source that works in plain JavaScript, where there
+    are no annotations to read.
+    """
+    if value_node is None or value_node.type != "new_expression":
+        return ""
+    ctor = value_node.child_by_field_name("constructor")
+    if ctor is None:
+        return ""
+    if ctor.type in ("identifier", "type_identifier"):
+        return text(src, ctor)
+    if ctor.type == "member_expression":
+        return _member_tail(src, ctor)
+    return ""
+
+
+def _declared_type(src: bytes, node) -> str:
+    """Best available type for a declaration: annotation first, then `new X()`."""
+    ann = node.child_by_field_name("type")
+    if ann is not None:
+        names = _type_annotation_names(src, ann)
+        if names:
+            return names[0]
+    return _new_expression_type(src, node.child_by_field_name("value"))
+
+
+def _member_name_node(node):
+    """Name node of a class member across both grammars.
+
+    TypeScript's `public_field_definition` uses the `name` field; JavaScript's
+    `field_definition` uses `property`. Checking only `name` silently drops
+    every plain-JS class field.
+    """
+    return node.child_by_field_name("name") or node.child_by_field_name("property")
+
+
+def _collect_field_types(src: bytes, class_body) -> dict:
+    """{field name: type} for a class, collected BEFORE any method is walked.
+
+    Order matters and is the reason this is a separate pass: a method may call
+    through a field declared further down the class body, and walking members
+    in source order would leave those calls untyped.
+    """
+    out: dict[str, str] = {}
+    if class_body is None:
+        return out
+    for member in class_body.named_children:
+        if member.type not in _FIELD_TYPES:
+            continue
+        nm = _member_name_node(member)
+        if nm is None:
+            continue
+        declared = _declared_type(src, member)
+        if declared:
+            out[text(src, nm)] = declared
+    return out
+
+
+def _callee_receiver_type(src: bytes, fn_node, var_types: dict,
+                          field_types: dict, class_name: str) -> str:
+    """Type of the object a member call is invoked ON.
+
+    Deliberately resolves the IMMEDIATE object, not the leftmost one that
+    `_receiver` returns. In `this.users.findById()` the call is on `this.users`
+    (a UserService), not on `this` — reporting the enclosing class there would
+    assert a type that is confidently wrong, which is worse than reporting
+    none: recv_type drives both the resolver's typed path and its
+    external-receiver suppression.
+
+    Chains deeper than one field hop (`a.b().c()`, `a.b.c.d()`) return '' —
+    binding them needs return-type propagation, which is not available here.
+    """
+    if fn_node is None or fn_node.type != "member_expression":
+        return ""
+    obj = fn_node.child_by_field_name("object")
+    if obj is None:
+        return ""
+    if obj.type == "this":
+        return class_name
+    if obj.type == "identifier":
+        return var_types.get(text(src, obj), "")
+    if obj.type == "member_expression":
+        base = obj.child_by_field_name("object")
+        prop = obj.child_by_field_name("property")
+        if base is not None and base.type == "this" and prop is not None:
+            return field_types.get(text(src, prop), "")
+    return ""
+
+
+def _scope_var_types(src: bytes, params_node, body, field_types: dict,
+                     class_name: str) -> dict:
+    """Variable -> declared type for one function scope.
+
+    Layered so the nearest binding wins: class fields, then parameters, then
+    locals. `this` maps to the enclosing class, which is what makes
+    `this.helper()` resolvable to a sibling method instead of every same-named
+    function in the repo.
+    """
+    types: dict[str, str] = dict(field_types)
+    if class_name:
+        types["this"] = class_name
+    if params_node is not None:
+        for param in params_node.named_children:
+            nm = param.child_by_field_name("pattern") or param.child_by_field_name("name")
+            if nm is None or nm.type != "identifier":
+                continue
+            declared = _declared_type(src, param)
+            if declared:
+                types[text(src, nm)] = declared
+    for decl in _scope_declarators(body):
+        nm = decl.child_by_field_name("name")
+        if nm is None or nm.type != "identifier":
+            continue
+        declared = _declared_type(src, decl)
+        if declared:
+            types[text(src, nm)] = declared
+    return types
+
+
 def extract(file: FileInfo, repo: str):
     src = file.source
     tree = get_parser(file.lang).parse(src)
@@ -217,13 +359,14 @@ def extract(file: FileInfo, repo: str):
         ))
 
     def ref(rtype, src_id, target, kind_hint, node, recv="", call_arity=-1,
-            import_fqn=""):
+            import_fqn="", recv_type=""):
         if not target:
             return
         refs.append(RawRef(
             rtype, src_id, target, kind_hint, recv=recv, import_fqn=import_fqn,
             ref_file=file.relpath, ref_line=node.start_point[0] + 1,
             ref_col=node.start_point[1], call_arity=call_arity,
+            recv_type=recv_type,
         ))
 
     def emit_type(rtype, src_id, ann_node):
@@ -316,14 +459,22 @@ def extract(file: FileInfo, repo: str):
 
         body = node.child_by_field_name("body")
         if body is not None:
+            # Collected BEFORE any method is walked: a method may call through a
+            # field declared further down the class body, and walking members in
+            # source order would leave those calls untyped.
+            field_types = _collect_field_types(src, body)
             for member in body.named_children:
                 if member.type in _METHOD_TYPES or member.type == "method_signature":
-                    handle_method(member, fqn, cid)
+                    handle_method(member, fqn, cid, field_types=field_types,
+                                  class_name=name)
                 elif member.type in _FIELD_TYPES:
                     handle_field(member, fqn, cid)
 
     def handle_field(node, class_fqn, class_id):
-        nm = node.child_by_field_name("name")
+        # `property` as well as `name`: the JavaScript grammar names it
+        # differently from TypeScript's, so checking only `name` meant plain-JS
+        # class fields never became Field nodes at all.
+        nm = _member_name_node(node)
         if nm is None:
             return
         fname = text(src, nm)
@@ -347,12 +498,14 @@ def extract(file: FileInfo, repo: str):
         if ann is not None:
             emit_type("OF_TYPE", fid, ann)
 
-    def handle_method(node, class_fqn, container_id):
+    def handle_method(node, class_fqn, container_id, field_types=None,
+                      class_name=""):
         name = _name_text(src, node)
         if not name:
             return
         _emit_function(node, class_fqn, container_id, name, kind="method",
-                       signature_only=(node.type == "method_signature"))
+                       signature_only=(node.type == "method_signature"),
+                       field_types=field_types, class_name=class_name)
 
     def handle_function_decl(node, parent_fqn, container_id):
         name = _name_text(src, node)
@@ -400,7 +553,8 @@ def extract(file: FileInfo, repo: str):
         contains(container_id, declarator, gid)
 
     def _emit_function(node, parent_fqn, container_id, name, kind,
-                       signature_only=False, name_node=None):
+                       signature_only=False, name_node=None,
+                       field_types=None, class_name=""):
         fqn = f"{parent_fqn}.{name}" if parent_fqn else name
         mid = make_id(repo, fqn, "method" if kind == "method" else "function")
         params_node = node.child_by_field_name("parameters")
@@ -437,6 +591,13 @@ def extract(file: FileInfo, repo: str):
                 if ann is not None:
                     emit_type("HAS_TYPE", mid, ann)
         if body is not None and not signature_only:
+            # Receiver typing, the fix java.py got. Without it every member call
+            # falls through to global name matching: `userService.findById()`
+            # and `orderRepo.findById()` become indistinguishable, and the
+            # resolver emits an edge to every findById in the repo.
+            var_types = _scope_var_types(
+                src, params_node, body, field_types or {}, class_name,
+            )
             for call in _scope_calls(body):
                 fn = call.child_by_field_name("function")
                 callee = _member_tail(src, fn)
@@ -444,7 +605,9 @@ def extract(file: FileInfo, repo: str):
                     args = call.child_by_field_name("arguments")
                     arity = len(args.named_children) if args is not None else -1
                     ref("CALLS", mid, callee, "call", fn,
-                        recv=_receiver(src, fn), call_arity=arity)
+                        recv=_receiver(src, fn), call_arity=arity,
+                        recv_type=_callee_receiver_type(
+                            src, fn, var_types, field_types or {}, class_name))
             # nested named functions/classes declared inside this body
             _walk_container(body, fqn, mid)
         return mid

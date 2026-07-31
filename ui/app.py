@@ -223,6 +223,34 @@ with st.sidebar:
 
     st.divider()
     st.header("Optional subsystems")
+    bytecode = st.checkbox(
+        "bytecode resolver (.class / .jar)", value=False,
+        help="Read Java calls straight out of compiled bytecode. Every call "
+             "instruction already names its owner class, method and exact "
+             "signature — javac RE-DERIVES that; a class file simply carries "
+             "it. Nothing is inferred, so nothing can be mis-inferred.\n\n"
+             "It is also the only source for three things no source-level pass "
+             "can give you: lambda bodies, anonymous inner classes and static "
+             "initializers as real nodes (tree-sitter has no declaration to "
+             "find), and field READS with the exact owning class rather than "
+             "only explicit `this.x`.\n\n"
+             "Needs compiled output in the upload (target/classes, "
+             "WEB-INF/classes, or jars). Coverage is per-file: anything without "
+             "a class file falls through to javac or the heuristic. If the "
+             "class files turn out to be STALE relative to the source, the "
+             "whole pass is discarded rather than trusted.",
+    )
+    bytecode_roots = st.text_input(
+        "bytecode class roots (optional)", value="", disabled=not bytecode,
+        placeholder=r"D:\path\to\classes",
+        help="Leave empty to auto-discover .class directories and jars inside "
+             "the uploaded zip.\n\n"
+             "Set this when the compiled output lives OUTSIDE the upload — which "
+             "is the normal case if you built the repo yourself with "
+             "scripts/compile_repo.py. Separate multiple locations with ';' on "
+             "Windows (':' elsewhere). Directories are walked for .class files; "
+             ".jar/.war/.ear are read directly.",
+    )
     javac = st.checkbox(
         "javac resolver for Java CALLS", value=False,
         help="Resolve Java calls with the real compiler instead of heuristic "
@@ -350,6 +378,8 @@ if run_btn:
             javac=javac,
             javac_timeout_seconds=float(javac_timeout),
             javac_batch_size=int(javac_batch),
+            bytecode=bytecode,
+            bytecode_class_roots=bytecode_roots.strip() or None,
             extract_cache=extract_cache,
             extract_cache_dir=extract_cache_dir,
             cache_io_workers=int(cache_io_workers),
@@ -427,6 +457,51 @@ if _build is not None:
         elif "value" in _res:
             _report = _res["value"]
             status_box.success(f"Done in {_report['total_duration_s']}s — peak {_report['overall_peak_mb']} MB")
+
+            # Which precise tier actually covered what. A silent fallback to the
+            # heuristic looks identical to success in node/edge counts, so the
+            # availability flag and its reason are surfaced first.
+            _bc = (_report.get("result_counts") or {}).get("bytecode") or {}
+            if _bc:
+                st.subheader("Bytecode resolver")
+                if _bc.get("available"):
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("File coverage", f"{100 * _bc['file_coverage']:.1f}%",
+                              help=f"{_bc['attributed_file_count']} of "
+                                   f"{_bc['java_files_seen']} .java files")
+                    c2.metric("Match rate", f"{100 * _bc['match_rate']:.1f}%",
+                              help="Bytecode methods pinned to a source node. A low "
+                                   "value means the class files are STALE relative "
+                                   "to the source.")
+                    c3.metric("CALLS", f"{_bc['call_edges']:,}",
+                              help="Exact compiler bindings — nothing inferred.")
+                    c4.metric("READS/WRITES", f"{_bc['field_edges']:,}",
+                              help="Field access with the exact owning class, not "
+                                   "just explicit `this.x`.")
+                    c5, c6, c7, c8 = st.columns(4)
+                    c5.metric("Synthesized nodes", f"{_bc['synthesized_nodes']:,}",
+                              help="Lambdas, anonymous inner classes and static "
+                                   "initializers — constructs with no source "
+                                   "declaration for tree-sitter to find.")
+                    c6.metric("Classes in repo", f"{_bc['classes_in_repo']:,}",
+                              help=f"of {_bc['classes_seen']:,} class files read")
+                    c7.metric("External calls", f"{_bc['external_calls']:,}",
+                              help="Callee outside the repo — no in-repo node can "
+                                   "be the target.")
+                    c8.metric("Seconds", f"{_bc['seconds']:.1f}")
+                    if _bc.get("synthesis_skipped_no_lines"):
+                        st.warning(
+                            f"{_bc['synthesis_skipped_no_lines']} construct(s) skipped "
+                            "for lacking a LineNumberTable — compile with `-g` to "
+                            "capture lambdas/anonymous classes there. A node without "
+                            "real positions is never created."
+                        )
+                    with st.expander("Match detail"):
+                        st.json(_bc.get("match_stats") or {})
+                else:
+                    st.info(f"Not used — {_bc.get('reason') or 'disabled'}. "
+                            "Java stayed on javac/heuristic.")
+
             st.subheader("Stages")
             st.dataframe(_report["stages"])
             st.subheader("Full report")

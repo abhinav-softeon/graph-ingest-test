@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..discovery import FileInfo
 from . import java as _java
 from . import javascript as _javascript
+from . import jsp as _jsp
 from . import python as _python
 from . import sql as _sql
 
@@ -14,6 +15,8 @@ def extract(file: FileInfo, repo: str):
     """Return (nodes, edges, refs) for one file."""
     if file.lang == "java":
         return _java.extract(file, repo)
+    if file.lang == "jsp":
+        return _jsp.extract(file, repo)
     if file.lang == "python":
         return _python.extract(file, repo)
     if file.lang == "sql":

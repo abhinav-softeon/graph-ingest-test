@@ -7,16 +7,40 @@ import tempfile
 import zipfile
 from typing import Callable, Dict, Iterable, List, Tuple
 
+from graph_core.artifacts import ARTIFACT_DIR_OVERRIDES, is_artifact
+
 
 SUPPORTED_CODE_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go",
     ".cs", ".rb", ".php", ".rs", ".cpp", ".c", ".h",
+    # discovery.EXT_LANG has always known .sql and there is a sql extractor, but
+    # upload stripped it before the pipeline ever saw one (HANDOFF 4.3).
+    ".sql",
+    # JSP is the entry-point layer of a Java web app — without it every call
+    # path starts somewhere in the middle of the business logic.
+    ".jsp", ".jspf", ".tag",
 }
 
 DEFAULT_EXCLUDED_DIRS = {
     ".git", "node_modules", "target", "dist", "build",
     "out", "coverage", "vendor", "__pycache__",
 }
+
+
+def _admits(rel_path: str, allowed_exts: set[str], excluded_dirs: set[str]) -> bool:
+    """Decide whether an uploaded path is kept.
+
+    Two rules, and the second is the non-obvious one: directory exclusions are
+    applied to source files only. Build-output directories hold exactly the
+    compiled artifacts the precise resolvers need, so excluding them for
+    artifacts would mean widening the extension allowlist admitted nothing.
+    See artifacts.ARTIFACT_DIR_OVERRIDES.
+    """
+    artifact = is_artifact(rel_path)
+    if not artifact and os.path.splitext(rel_path)[1].lower() not in allowed_exts:
+        return False
+    effective = excluded_dirs - ARTIFACT_DIR_OVERRIDES if artifact else excluded_dirs
+    return not _path_contains_excluded_dir(rel_path, effective)
 
 
 def sanitize_upload_path(raw_path: str) -> str:
@@ -99,10 +123,7 @@ def materialize_uploaded_sources(
                     rel = sanitize_upload_path(info.filename)
                 except ValueError:
                     continue
-                if _path_contains_excluded_dir(rel, excluded) or _is_macos_zip_cruft(rel):
-                    continue
-                ext = os.path.splitext(rel)[1].lower()
-                if ext not in allowed:
+                if _is_macos_zip_cruft(rel) or not _admits(rel, allowed, excluded):
                     continue
                 target = Path(src_root, *rel.split("/"))
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -115,10 +136,7 @@ def materialize_uploaded_sources(
             rel = sanitize_upload_path(name)
         except ValueError:
             continue
-        if _path_contains_excluded_dir(rel, excluded):
-            continue
-        ext = os.path.splitext(rel)[1].lower()
-        if ext not in allowed:
+        if not _admits(rel, allowed, excluded):
             continue
         target = Path(src_root, *rel.split("/"))
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -165,10 +183,7 @@ def materialize_uploaded_sources_from_zip_path(
                 rel = sanitize_upload_path(info.filename)
             except ValueError:
                 continue
-            if _path_contains_excluded_dir(rel, excluded) or _is_macos_zip_cruft(rel):
-                continue
-            ext = os.path.splitext(rel)[1].lower()
-            if ext not in allowed:
+            if _is_macos_zip_cruft(rel) or not _admits(rel, allowed, excluded):
                 continue
             selected_infos.append((info, rel))
 

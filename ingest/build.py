@@ -10,6 +10,7 @@ import uuid
 from typing import Any, Callable, Optional
 
 from graph_core.config import (
+    is_bytecode_resolver_enabled,
     checkpoint_root,
     extract_batch_size,
     extract_worker_count,
@@ -33,7 +34,8 @@ from .upload_utils import SUPPORTED_CODE_EXTS, materialize_uploaded_sources_from
 _log = get_logger(__name__)
 
 
-def _config_snapshot(project: str, repo_tag: str, javac: Optional[bool]) -> dict[str, Any]:
+def _config_snapshot(project: str, repo_tag: str, javac: Optional[bool],
+                     bytecode: Optional[bool] = None) -> dict[str, Any]:
     """Read every toggle graph_core/config.py currently exposes, fresh, so
     the run report accurately records what was actually active for this run
     (env vars may have been changed by the caller right before this call)."""
@@ -41,6 +43,7 @@ def _config_snapshot(project: str, repo_tag: str, javac: Optional[bool]) -> dict
         "project": project,
         "repo_tag": repo_tag,
         "javac": javac if javac is not None else is_javac_resolver_enabled(),
+        "bytecode": bytecode if bytecode is not None else is_bytecode_resolver_enabled(),
         "javac_timeout_s": javac_timeout_seconds(),
         "extract_batch_size": extract_batch_size(),
         "extract_workers": extract_worker_count(),
@@ -58,6 +61,7 @@ def build_graph_from_zip(
     project: str,
     *,
     javac: Optional[bool] = None,
+    bytecode: Optional[bool] = None,
     on_stage: Optional[Callable[[str, dict], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
     sample_interval_s: float = 0.5,
@@ -73,7 +77,7 @@ def build_graph_from_zip(
     run_id = uuid.uuid4().hex[:8]
     repo_tag = slugify_project(project)
     sampler = MemorySampler(interval_s=sample_interval_s)
-    config_snapshot = _config_snapshot(project, repo_tag, javac)
+    config_snapshot = _config_snapshot(project, repo_tag, javac, bytecode)
     report = RunReport(run_id, project, config_snapshot, sampler, runs_dir=runs_dir, inner_on_stage=on_stage)
     sampler.start()
 
@@ -94,6 +98,7 @@ def build_graph_from_zip(
             repo_tag,
             store,
             javac=config_snapshot["javac"],
+            bytecode=config_snapshot["bytecode"],
             on_stage=report.on_stage,
             candidate_relpaths=selected,
             cancel_check=cancel_check,
@@ -105,6 +110,20 @@ def build_graph_from_zip(
                 edges=index_result.edges,
                 stage_seconds=index_result.stage_seconds,
                 validation=index_result.validation,
+                # Which precise tier actually covered what. Without these the
+                # report cannot distinguish "bytecode resolved everything" from
+                # "bytecode silently fell back to the heuristic" — the two look
+                # identical in node/edge counts.
+                bytecode=index_result.bytecode.summary(),
+                javac={
+                    "available": index_result.javac.available,
+                    "reason": index_result.javac.reason,
+                    "edges": index_result.javac.edges,
+                    "file_coverage": round(index_result.javac.file_coverage, 4),
+                    "attribution_rate": round(index_result.javac.attribution_rate, 4),
+                    "attributed_file_count": index_result.javac.attributed_file_count,
+                    "seconds": round(index_result.javac.seconds, 2),
+                },
             )
         else:
             report.set_result_counts(skipped_unchanged=True)

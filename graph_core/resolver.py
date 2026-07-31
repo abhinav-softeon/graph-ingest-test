@@ -30,6 +30,9 @@ from .apispec import (
 )
 from .checkpoint import load_resolve_checkpoint, save_resolve_checkpoint
 from .config import resolve_checkpoint_seconds
+from .external_api import (
+    classify_call, external_display, external_id, external_key,
+)
 from .ids import make_id
 from .models import Confidence, Edge, IngestCancelled, Node, Origin, RawRef
 from sail_core.logger.logger import get_logger
@@ -546,6 +549,7 @@ def resolve(
     event_ids: dict[str, str] = {}
     policy_ids: dict[str, str] = {}
     api_endpoint_ids: set[str] = set()
+    external_ids: set[str] = set()
     out_edges: list[Edge] = []
     coverage: dict[str, Coverage] = defaultdict(Coverage)
 
@@ -735,6 +739,30 @@ def resolve(
             # bucket — the target genuinely is not in this codebase.
             if strategy == "external_receiver":
                 cov.external += 1
+                # The call is not lost, only its in-repo destination. Before the
+                # external-receiver fix these fanned out into garbage; after it
+                # they vanished entirely, taking with them the only record that
+                # a function touches a database. Keep the fact.
+                #
+                # No return type is available here (recv_type is all the
+                # extractor carries), so this catches DB work by owner type
+                # only. The bytecode path, which has descriptors, additionally
+                # catches acquires by return type — see external_api.
+                kind = classify_call(ref.recv_type, ref.target_name)
+                if kind:
+                    eid = external_id(ref.recv_type, ref.target_name)
+                    if eid not in external_ids:
+                        external_ids.add(eid)
+                        extra_nodes.append(Node(
+                            id=eid, label="External",
+                            name=external_display(ref.recv_type, ref.target_name),
+                            fqn=external_key(ref.recv_type, ref.target_name),
+                            repo="external", kind=kind,
+                        ))
+                    out_edges.append(make_edge(
+                        ref, eid, _CONF_EXTRACTED,
+                        strategy="external_typed", edge_type="CALLS_EXTERNAL",
+                    ))
                 return
             # Precision guard: a call on an *unknown* receiver that matched only by
             # global name (no scope/file/import/receiver-type evidence) is not a

@@ -20,6 +20,8 @@ from .cypher_derive_reference import synthesize_polymorphic_calls_cypher
 from .checkpoint import RefStream, batch_exists, clear_checkpoint, init_manifest, load_batch, save_batch
 from .config import checkpoint_root as get_checkpoint_root
 from .config import (
+    bytecode_class_roots,
+    bytecode_min_match_rate,
     extract_batch_size,
     extract_worker_count,
     get_cache_io_workers,
@@ -27,6 +29,7 @@ from .config import (
     javac_batch_size,
     javac_timeout_seconds,
 )
+from .bytecode_resolver import BytecodeReport, resolve_java_bytecode
 from .discovery import FileInfo, discover, list_candidate_relpaths
 from .extract_cache import get_extract_cache
 from .ids import make_id
@@ -104,6 +107,7 @@ class IndexResult:
     validation: dict = field(default_factory=dict)
     db_counts: dict = field(default_factory=dict)
     javac: JavacReport = field(default_factory=JavacReport)
+    bytecode: BytecodeReport = field(default_factory=BytecodeReport)
     # `roles: dict` lived here — role-classification diagnostics. The pass that
     # produced them was deleted in item #3, so every construction below passed
     # a hardcoded {}. Removed.
@@ -113,7 +117,8 @@ class IndexResult:
 
 
 def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
-               javac: bool = False, on_stage: OnStage = None,
+               javac: bool = False, bytecode: bool = False,
+               on_stage: OnStage = None,
                candidate_files: list[str] | None = None,
                cancel_check: Callable[[], bool] | None = None,
                changed_files: list[str] | None = None,
@@ -576,6 +581,38 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     #
     # all_nodes is complete here — javac matches its bindings onto node ids by
     # (fqn, param_count), and both survive the slim projection further down.
+    # Bytecode first: it is the only Tier 0 source. javac RE-DERIVES the
+    # bindings by recompiling; a class file already carries them, so wherever
+    # both apply bytecode wins and javac is left to cover what it missed.
+    # It also contributes NODES — lambdas, anonymous classes and <clinit>, which
+    # have no source declaration for tree-sitter to find (HANDOFF 4.2). Those
+    # are appended to all_nodes here, BEFORE the pre-resolve write below, so
+    # they are persisted and slim-projected with everything else rather than
+    # needing the late_nodes path.
+    bytecode_report = BytecodeReport()
+    bytecode_edges: list[Edge] = []
+    bytecode_owns: set[str] = set()
+    if bytecode and has_java:
+        if on_stage:
+            on_stage("bytecode", {})
+        _beat("bytecode", "reading Java calls from compiled bytecode")
+        bytecode_edges, bytecode_nodes, bytecode_report = resolve_java_bytecode(
+            all_nodes, root, repo,
+            class_roots=bytecode_class_roots() or None,
+            java_files_seen=sum(1 for p in all_relpaths if p.lower().endswith(".java")),
+            min_match_rate=bytecode_min_match_rate(),
+        )
+        if bytecode_report.available:
+            bytecode_owns = bytecode_report.attributed_files
+            all_nodes.extend(bytecode_nodes)
+        else:
+            bytecode_edges = []
+            _log.info(
+                "[graph_ingest][repo=%s] bytecode unavailable (%s) — Java stays "
+                "on javac/heuristic", repo, bytecode_report.reason,
+            )
+    _mark("bytecode")
+
     javac_report = JavacReport()
     javac_owns_java = False
     javac_edges: list[Edge] = []
@@ -594,6 +631,20 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
                 "[graph_ingest][repo=%s] javac unavailable (%s) — Java stays on "
                 "the heuristic resolver", repo, javac_report.reason,
             )
+        elif bytecode_owns:
+            # Both passes are correct where they overlap, so this is about not
+            # counting the same edge twice rather than about correctness. Tier
+            # order decides: bytecode already produced these files' calls, and
+            # it additionally has callers (lambdas, anonymous classes) that
+            # javac attributes to the enclosing method instead.
+            kept = [e for e in javac_edges if e.evidence_file not in bytecode_owns]
+            dropped = len(javac_edges) - len(kept)
+            if dropped:
+                _log.info(
+                    "[graph_ingest][repo=%s] javac: dropped %s edge(s) for files "
+                    "already covered by bytecode", repo, dropped,
+                )
+            javac_edges = kept
     _mark("javac")
 
     late_nodes: list[Node] = []
@@ -752,7 +803,12 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
             # invisible in the output. Skipping the covered files is what makes
             # javac a replacement for that work rather than an addition to it
             # (a 16.5k-file repo produced 3.3M ambiguous CALLS at 0.1% precision).
-            skip_call_files=javac_report.attributed_files if javac_owns_java else None,
+            # Union across every precise tier: a file is skipped if ANY of them
+            # covered it, so the heuristic fills exactly the remainder.
+            skip_call_files=(
+                (bytecode_owns | (javac_report.attributed_files if javac_owns_java else set()))
+                or None
+            ),
         )
     finally:
         # Drain and stop the background writer before anything that assumes the
@@ -789,11 +845,26 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # javac succeeded, so there is nothing stale to drop. That is the whole
     # reason this runs first — replacing edges after the fact is what forced
     # CALLS to be held in RAM through resolve.
-    if javac_owns_java and javac_edges:
+    if bytecode_edges or (javac_owns_java and javac_edges):
         known_node_ids.update(n.id for n in all_nodes)
+        coverage.pop("CALLS", None)   # a precise tier supersedes heuristic CALLS
+
+    # Bytecode carries CONTAINS/READS/WRITES alongside CALLS, so these go
+    # through the same merge as any other structural edge — _RETAINED_EDGE_TYPES
+    # keeps the CONTAINS for the synthesized nodes, and the rest streams out.
+    if bytecode_edges:
+        edge_stats.add(bytecode_edges, known_node_ids)
+        all_edges.extend(bytecode_edges)
+        _log.info(
+            "[graph_ingest][repo=%s] bytecode: merged %s edge(s) "
+            "(%s CALLS, %s READS/WRITES) and %s synthesized node(s)",
+            repo, len(bytecode_edges), bytecode_report.call_edges,
+            bytecode_report.field_edges, bytecode_report.synthesized_nodes,
+        )
+
+    if javac_owns_java and javac_edges:
         edge_stats.add(javac_edges, known_node_ids)
         all_edges.extend(javac_edges)
-        coverage.pop("CALLS", None)   # javac supersedes heuristic CALLS coverage
         _log.info(
             "[graph_ingest][repo=%s] javac: merged %s type-resolved Java CALLS edge(s)",
             repo, len(javac_edges),
@@ -971,6 +1042,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         validation=validation,
         db_counts=store.counts(repo),
         javac=javac_report,
+        bytecode=bytecode_report,
         stage_seconds=stage_seconds,
     )
 

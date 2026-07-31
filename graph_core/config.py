@@ -55,6 +55,46 @@ def javac_batch_size() -> int:
     return v if v > 0 else 400
 
 
+def is_bytecode_resolver_enabled() -> bool:
+    """Read Java CALLS/READS/WRITES out of compiled bytecode.
+
+    Strictly better than javac where class files exist: javac re-derives the
+    bindings, bytecode simply carries them. It also supplies what no
+    source-level pass can — lambda bodies, anonymous inner classes and static
+    initializers as real methods (HANDOFF 4.2), and field access with the exact
+    owning class rather than only explicit `this.x` (HANDOFF 4.4).
+
+    Default off; opt in with GRAPH_BYTECODE_RESOLVER=1/true. Coverage is
+    per-file, so files without class files stay on javac or the heuristic."""
+    env = os.environ.get("GRAPH_BYTECODE_RESOLVER", "false").strip().lower()
+    return env in ("1", "true", "yes", "on")
+
+
+def bytecode_class_roots() -> list[str]:
+    """Explicit class/jar locations, os.pathsep-separated.
+
+    Normally left unset: the pass discovers .class directories and archives via
+    discovery.discover_artifacts. Set GRAPH_BYTECODE_CLASS_ROOTS when the
+    compiled output lives outside the uploaded tree."""
+    raw = os.environ.get("GRAPH_BYTECODE_CLASS_ROOTS", "").strip()
+    return [p for p in raw.split(os.pathsep) if p.strip()] if raw else []
+
+
+def bytecode_min_match_rate() -> float:
+    """Quality floor for the bytecode pass (default 0.5).
+
+    This is the STALE BUILD guard, and it is the failure mode that matters:
+    class files from an old build parse perfectly and produce confident edges
+    for code that no longer exists. If fewer than this fraction of bytecode
+    methods match a source node, the bytecode does not describe this source
+    tree and the whole pass is discarded rather than trusted."""
+    try:
+        v = float(os.environ.get("GRAPH_BYTECODE_MIN_MATCH_RATE", "0.5"))
+    except ValueError:
+        return 0.5
+    return v if 0.0 < v <= 1.0 else 0.5
+
+
 def extract_worker_count() -> int:
     """Process-pool size for parallel file extraction (CPU-bound tree-sitter
     parsing, one file fully independent of another). Defaults to CPU count.
