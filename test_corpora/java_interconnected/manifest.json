@@ -1,0 +1,397 @@
+{
+  "package": "com.testcorp",
+  "counts": {
+    "files": 119,
+    "daos": 30,
+    "services": 25,
+    "endpoints": 20,
+    "handlers": 12,
+    "pools": 8,
+    "managers": 10,
+    "facades": 8
+  },
+  "entry_points": [
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint0",
+      "file": "sei/impl/Endpoint0.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint1",
+      "file": "sei/impl/Endpoint1.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint2",
+      "file": "sei/impl/Endpoint2.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint3",
+      "file": "sei/impl/Endpoint3.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint4",
+      "file": "sei/impl/Endpoint4.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint5",
+      "file": "sei/impl/Endpoint5.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint6",
+      "file": "sei/impl/Endpoint6.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint7",
+      "file": "sei/impl/Endpoint7.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint8",
+      "file": "sei/impl/Endpoint8.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint9",
+      "file": "sei/impl/Endpoint9.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint10",
+      "file": "sei/impl/Endpoint10.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint11",
+      "file": "sei/impl/Endpoint11.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint12",
+      "file": "sei/impl/Endpoint12.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint13",
+      "file": "sei/impl/Endpoint13.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint14",
+      "file": "sei/impl/Endpoint14.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint15",
+      "file": "sei/impl/Endpoint15.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint16",
+      "file": "sei/impl/Endpoint16.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint17",
+      "file": "sei/impl/Endpoint17.java",
+      "indirect": false
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint18",
+      "file": "sei/impl/Endpoint18.java",
+      "indirect": true
+    },
+    {
+      "fqn": "com.testcorp.sei.impl.Endpoint19",
+      "file": "sei/impl/Endpoint19.java",
+      "indirect": false
+    }
+  ],
+  "expected_dao_findings": [
+    {
+      "fqn": "com.testcorp.dao.Dao0#load",
+      "file": "dao/Dao0.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao1#load",
+      "file": "dao/Dao1.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": true
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao2#load",
+      "file": "dao/Dao2.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao3#load",
+      "file": "dao/Dao3.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao4#load",
+      "file": "dao/Dao4.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao5#load",
+      "file": "dao/Dao5.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao6#load",
+      "file": "dao/Dao6.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao7#load",
+      "file": "dao/Dao7.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": false,
+      "sanitized": true
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao8#load",
+      "file": "dao/Dao8.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao9#load",
+      "file": "dao/Dao9.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao10#load",
+      "file": "dao/Dao10.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao11#load",
+      "file": "dao/Dao11.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao12#load",
+      "file": "dao/Dao12.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao13#load",
+      "file": "dao/Dao13.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": true
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao14#load",
+      "file": "dao/Dao14.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao15#load",
+      "file": "dao/Dao15.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao16#load",
+      "file": "dao/Dao16.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao17#load",
+      "file": "dao/Dao17.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao18#load",
+      "file": "dao/Dao18.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao19#load",
+      "file": "dao/Dao19.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": false,
+      "sanitized": true
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao20#load",
+      "file": "dao/Dao20.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao21#load",
+      "file": "dao/Dao21.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao22#load",
+      "file": "dao/Dao22.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao23#load",
+      "file": "dao/Dao23.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao24#load",
+      "file": "dao/Dao24.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao25#load",
+      "file": "dao/Dao25.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": false,
+      "sanitized": true
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao26#load",
+      "file": "dao/Dao26.java",
+      "shape": "CLEAN_TWR",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao27#load",
+      "file": "dao/Dao27.java",
+      "shape": "LEAK_NO_CLOSE",
+      "expect_leak": true,
+      "graph_sees_a_release": false,
+      "expect_injection": false,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao28#load",
+      "file": "dao/Dao28.java",
+      "shape": "CLEAN_FINALLY",
+      "expect_leak": false,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    },
+    {
+      "fqn": "com.testcorp.dao.Dao29#load",
+      "file": "dao/Dao29.java",
+      "shape": "LEAK_NO_FINALLY",
+      "expect_leak": true,
+      "graph_sees_a_release": true,
+      "expect_injection": true,
+      "sanitized": false
+    }
+  ],
+  "expected": {
+    "leaks": 15,
+    "leaks_graph_cannot_see": 8,
+    "injections": 15,
+    "sanitized_not_vulnerable": 5
+  },
+  "notes": [
+    "Compile with -g or every lambda/anonymous body is lost to synthesis.",
+    "expected.leaks_graph_cannot_see is the number only the summary layer can find \u2014 a graph-only detector scoring 0 there is behaving correctly, not failing."
+  ]
+}

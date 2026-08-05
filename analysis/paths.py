@@ -1,0 +1,189 @@
+"""Path enumeration inside the reachability universe.
+
+THIS is the combinatorial part, which is why it runs second
+Reachability (reach.py) needed no depth bound because it is a closure. Enumeration
+does, because the number of paths grows as branching^depth — at the measured 5.34
+branching, depth 5 is already ~4,300 endpoints per root. The bound is affordable
+here only because reach.py has already cut the graph to functions that actually lie
+on an entry->sink path.
+
+HUB EXCLUSION IS NOT AN OPTIMIZATION, IT IS CORRECTNESS OF THE OUTPUT
+`STKGeneral#nullCheck` has 33,373 callers and `getStringArray` 16,408. Left in,
+they appear on an enormous number of paths and dominate the batch that gets sent to
+a model — burning the budget on chains whose middle hop carries no security
+meaning. They are excluded from ENUMERATION only; they stay in the reachability
+pass, where they drop out naturally because reaching `nullCheck` does not reach a
+sink.
+
+TRUSTED EDGES ONLY, AND A PATH IS ONLY AS GOOD AS ITS WEAKEST EDGE
+One bare-name hop in the middle makes the whole chain fiction, so every relationship
+on an enumerated path must be bytecode/receiver_type/same_*. This is stricter than
+filtering the endpoints and it is the point.
+"""
+from __future__ import annotations
+
+import time
+
+from sail_core.logger.logger import get_logger
+
+_log = get_logger(__name__)
+
+_TRUSTED_ALL = (
+    "all(rel IN relationships(p) WHERE rel.strategy = 'bytecode' "
+    "OR rel.strategy STARTS WITH 'receiver_type' "
+    "OR rel.strategy STARTS WITH 'same_')"
+)
+
+DEFAULT_MAX_DEPTH = 8      # covers controller->service->manager->dao->impl chains
+DEFAULT_HUB_CALLERS = 500  # above this a function is plumbing, not a step in a story
+
+
+def find_hubs(store, repo: str, min_callers: int = DEFAULT_HUB_CALLERS) -> list[dict]:
+    """Functions called from so many places that they carry no path-specific meaning.
+
+    Measured rather than hardcoded: a name list would go stale, and every codebase
+    has different plumbing. Returned with counts so the exclusion is auditable —
+    silently dropping nodes from analysis is exactly the kind of invisible cap that
+    makes a report read as complete when it is not.
+    """
+    rows = store.read(
+        """
+        MATCH (f:Function {repo: $repo})<-[r:CALLS]-()
+        WITH f, count(r) AS callers
+        WHERE callers >= $min_callers
+        RETURN f.id AS id, f.fqn AS fqn, callers
+        ORDER BY callers DESC
+        """,
+        repo=repo, min_callers=min_callers,
+    )
+    hubs = [dict(r) for r in rows]
+    if hubs:
+        _log.info("[paths] excluding %s hub(s) from enumeration, top: %s",
+                  len(hubs), ", ".join(f"{h['fqn']}({h['callers']})" for h in hubs[:5]))
+    return hubs
+
+
+def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
+               max_depth: int = DEFAULT_MAX_DEPTH, limit: int = 2000,
+               hub_ids: list[str] | None = None) -> list[dict]:
+    """Entry-point -> sink paths within the universe.
+
+    Anchored at BOTH ends — starts at a `from_entry` function, ends at one with a
+    `CALLS_EXTERNAL` to a dangerous kind — so every returned path is a complete
+    story about untrusted data reaching a dangerous operation, not an arbitrary
+    call chain.
+
+    `limit` is applied in Cypher and reported by the caller when hit: a truncated
+    path set that looks complete is the failure mode this whole module is trying to
+    avoid.
+    """
+    t0 = time.monotonic()
+    hub_ids = hub_ids or []
+    kinds_clause = "AND x.kind IN $kinds" if sink_kinds else ""
+    rows = store.read(
+        f"""
+        MATCH (entry:Function {{repo: $repo, from_entry: true}})
+        MATCH p = (entry)-[:CALLS*0..{int(max_depth)}]->(sink:Function)
+        WHERE sink.reaches_sink = true
+          AND {_TRUSTED_ALL}
+          AND none(n IN nodes(p) WHERE n.id IN $hub_ids)
+          AND all(n IN nodes(p) WHERE n.reaches_sink = true)
+        MATCH (sink)-[:CALLS_EXTERNAL]->(x:External)
+        WHERE 1=1 {kinds_clause}
+        WITH p, entry, sink, collect(DISTINCT x.kind) AS sink_kinds,
+             collect(DISTINCT x.name) AS sink_names
+        RETURN [n IN nodes(p) | n.id] AS ids,
+               [n IN nodes(p) | n.fqn] AS fqns,
+               entry.fqn AS entry_fqn, entry.file AS entry_file,
+               sink.fqn AS sink_fqn, sink.file AS sink_file,
+               sink.start_line AS sink_line,
+               sink_kinds, sink_names, length(p) AS hops
+        ORDER BY hops, entry_fqn
+        LIMIT $limit
+        """,
+        repo=repo, kinds=sink_kinds or [], hub_ids=hub_ids, limit=limit,
+    )
+    out = [dict(r) for r in rows]
+    if len(out) >= limit:
+        _log.warning(
+            "[paths] hit the %s-path limit — the set is TRUNCATED, not complete. "
+            "Narrow sink_kinds or lower max_depth rather than treating this as full "
+            "coverage.", limit,
+        )
+    _log.info("[paths] %s path(s), depth<=%s, in %.1fs",
+              len(out), max_depth, time.monotonic() - t0)
+    return out
+
+
+def leak_paths(store, repo: str, max_depth: int = DEFAULT_MAX_DEPTH,
+               limit: int = 1000, hub_ids: list[str] | None = None) -> list[dict]:
+    """Acquire -> ... paths for leak analysis. A different question, so a different query.
+
+    A leak is not source->sink taint: it is one function acquiring a resource and
+    no release on every path out. So this anchors on `db_acquire` and returns the
+    call chain BELOW the acquiring function — the frames that could throw between
+    acquire and close, which is exactly what Pass B needs to judge whether the
+    close is actually guaranteed.
+    """
+    hub_ids = hub_ids or []
+    rows = store.read(
+        f"""
+        MATCH (acq:Function {{repo: $repo}})-[:CALLS_EXTERNAL]->(:External {{kind: 'db_acquire'}})
+        MATCH p = (acq)-[:CALLS*0..{int(max_depth)}]->(tail:Function)
+        WHERE {_TRUSTED_ALL}
+          AND none(n IN nodes(p) WHERE n.id IN $hub_ids)
+        RETURN [n IN nodes(p) | n.id] AS ids,
+               [n IN nodes(p) | n.fqn] AS fqns,
+               acq.id AS acquire_id, acq.fqn AS acquire_fqn,
+               acq.file AS acquire_file, acq.start_line AS acquire_line,
+               length(p) AS hops
+        ORDER BY acquire_fqn, hops
+        LIMIT $limit
+        """,
+        repo=repo, hub_ids=hub_ids, limit=limit,
+    )
+    out = [dict(r) for r in rows]
+    _log.info("[paths] %s leak path(s)", len(out))
+    return out
+
+
+def dedupe_paths(rows: list[dict]) -> list[dict]:
+    """Drop paths that are a prefix-suffix of a longer one to the same sink.
+
+    Variable-length matching returns every sub-path, so one 5-hop chain yields six
+    rows ending at the same place. Keeping only the longest per (entry, sink) pair
+    means the model sees each distinct story once instead of six times at
+    increasing detail.
+    """
+    best: dict[tuple, dict] = {}
+    for row in rows:
+        ids = row.get("ids") or []
+        if not ids:
+            continue
+        key = (ids[0], ids[-1])
+        prev = best.get(key)
+        if prev is None or len(ids) > len(prev.get("ids") or []):
+            best[key] = row
+    out = sorted(best.values(), key=lambda r: (r.get("hops") or 0, r.get("entry_fqn") or ""))
+    if len(out) < len(rows):
+        _log.info("[paths] deduped %s -> %s (dropped sub-paths of longer chains)",
+                  len(rows), len(out))
+    return out
+
+
+def batch_paths(rows: list[dict], per_batch: int = 3) -> list[list[dict]]:
+    """Group paths for Pass B, keeping paths that SHARE a sink together.
+
+    Deliberate: paths converging on one sink are usually the same underlying
+    question, so batching them lets the model judge the sink once and reason about
+    which entry points actually reach it — better answers than the same paths split
+    across unrelated calls, and it also maximizes summary reuse within a call.
+    """
+    by_sink: dict[str, list[dict]] = {}
+    for row in rows:
+        by_sink.setdefault(row.get("sink_fqn") or row.get("acquire_fqn") or "", []).append(row)
+    batches: list[list[dict]] = []
+    for group in by_sink.values():
+        for i in range(0, len(group), per_batch):
+            batches.append(group[i:i + per_batch])
+    return batches

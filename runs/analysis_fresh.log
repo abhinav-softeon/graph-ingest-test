@@ -1,0 +1,1189 @@
+2026-08-02 00:17:36,802 INFO graph_core.store: [graph_store] bootstrap: asserting constraints
+2026-08-02 00:17:36,915 INFO graph_core.pipeline: [graph_ingest][repo=corpus] discover: 111 candidate files (batch_size=2000)
+2026-08-02 00:17:36,916 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'discovering' done in 0.003s (peak_rss=119MB)
+2026-08-02 00:17:36,916 INFO graph_core.pipeline: [graph_ingest][repo=corpus] batch 1/1: reading+hashing 111 file(s)
+2026-08-02 00:17:36,932 INFO graph_core.discovery: [graph_discover] read+hashed 111 file(s) from 111 candidate path(s) in 0.016s
+2026-08-02 00:17:39,591 INFO graph_core.pipeline: [graph_ingest][repo=corpus] final merge: deduping 637 node(s), 526 edge(s), 2265 ref(s) across batches
+2026-08-02 00:17:39,592 INFO graph_core.pipeline: [graph_ingest][repo=corpus] final merge: done in 0.001s
+2026-08-02 00:17:39,592 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'graph_parsing' done in 2.676s (peak_rss=122MB)
+2026-08-02 00:17:39,592 INFO graph_core.pipeline: [graph_ingest][repo=corpus] extracting: 637 nodes, 526 edges, 2265 refs so far
+2026-08-02 00:17:39,858 INFO graph_core.javac_autocompile: [autocompile] compiling 111 source(s) with -g into C:\Users\abhinavr\AppData\Local\Temp\graph_autocompile_rp1jm9c_
+2026-08-02 00:17:42,086 INFO graph_core.javac_autocompile: [autocompile] produced 118 class file(s) from 111 source(s) in 2.5s
+2026-08-02 00:17:42,087 INFO graph_core.pipeline: [graph_ingest][repo=corpus] bytecode: compiling 111 source(s) with javac -g (peak_rss=122MB)
+2026-08-02 00:17:42,087 INFO graph_core.pipeline: [graph_ingest][repo=corpus] autocompile: {'attempted': True, 'sources': 111, 'classes': 118, 'seconds': 2.4904482000274584, 'reason': ''}
+2026-08-02 00:17:42,087 INFO graph_core.pipeline: [graph_ingest][repo=corpus] bytecode: reading Java calls from compiled bytecode (peak_rss=122MB)
+2026-08-02 00:17:42,087 INFO graph_core.bytecode_resolver: [bytecode] scanning 1 class source(s)
+2026-08-02 00:17:42,179 INFO graph_core.bytecode_resolver: [bytecode] 118 class(es) seen, 116 in repo; 413 CALLS + 117 READS/WRITES, 21 synthesized node(s), 383 external call(s); match rate 100.0%, file coverage 98.2% in 0.1s
+2026-08-02 00:17:42,179 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'bytecode' done in 2.588s (peak_rss=122MB)
+2026-08-02 00:17:42,179 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'javac' done in 0.000s (peak_rss=122MB)
+2026-08-02 00:17:42,179 INFO graph_core.store: [graph_store] bootstrap: asserting constraints
+2026-08-02 00:17:42,200 INFO graph_core.store: [graph_store][repo=corpus] wipe: deleting entire namespace
+2026-08-02 00:17:43,086 INFO graph_core.store: [graph_store][repo=corpus] wipe: done in 0.886s
+2026-08-02 00:17:43,086 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: writing 675 extracted node(s) to Neo4j (peak_rss=122MB)
+2026-08-02 00:17:43,411 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: nodes written 90/675 (peak_rss=123MB)
+2026-08-02 00:17:43,429 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: nodes written 199/675 (peak_rss=123MB)
+2026-08-02 00:17:43,438 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: nodes written 310/675 (peak_rss=123MB)
+2026-08-02 00:17:43,767 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: nodes written 327/675 (peak_rss=123MB)
+2026-08-02 00:17:43,786 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: nodes written 675/675 (peak_rss=123MB)
+2026-08-02 00:17:43,788 INFO graph_core.store: [graph_store] write_nodes: wrote 675 node(s) across 5 label(s) in 0.702s (File=111, Class=109, Field=90, Function=348, External=17)
+2026-08-02 00:17:43,789 INFO graph_core.pipeline: [graph_ingest][repo=corpus] streaming ingest: wrote 675 extracted node(s) to Neo4j pre-resolve
+2026-08-02 00:17:43,789 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: projecting 675 node(s) to the slim record (peak_rss=123MB)
+2026-08-02 00:17:43,797 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: queueing 526 structural edge(s) for write (peak_rss=123MB)
+2026-08-02 00:17:43,799 INFO graph_core.pipeline: [graph_ingest][repo=corpus] streaming writer: flushed 526 structural edge(s) pre-resolve (0 deferred)
+2026-08-02 00:17:43,805 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving against slim projection of 675 node(s)
+2026-08-02 00:17:43,805 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: building lookup indices (peak_rss=123MB)
+2026-08-02 00:17:43,806 INFO graph_core.resolver: [resolve][repo=corpus] building lookup indices over 675 node(s), 526 edge(s), 2265 ref(s)
+2026-08-02 00:17:43,812 INFO graph_core.resolver: [resolve][repo=corpus] lookup indices built in 0.005s
+2026-08-02 00:17:43,812 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving 0/2265 refs (peak_rss=123MB)
+2026-08-02 00:17:44,535 INFO graph_core.store: [graph_store] write_edges: wrote 526 edge(s) across 1 type(s) in 0.735s (CONTAINS=526)
+2026-08-02 00:17:44,668 INFO graph_core.store: [graph_store] write_nodes: wrote 2 node(s) across 1 label(s) in 0.132s (Annotation=2)
+2026-08-02 00:17:45,124 WARNING neo4j.session: Transaction failed and will be retried in 0.892683537115148s ({neo4j_code: Neo.TransientError.Transaction.DeadlockDetected} {message: ForsetiClient[transactionId=821, clientId=1] can't acquire ExclusiveLock{owner=ForsetiClient[transactionId=823, clientId=14]} on NODE_RELATIONSHIP_GROUP_DELETE(896) because holders of that lock are waiting for ForsetiClient[transactionId=821, clientId=1].
+ Wait list:ExclusiveLock[
+Client[823] waits for [ForsetiClient[transactionId=821, clientId=1]]]} {gql_status: 50N05} {gql_status_description: error: general processing exception - deadlock detected. Deadlock detected while trying to acquire locks. See log for more details.})
+2026-08-02 00:17:46,081 INFO graph_core.store: [graph_store] write_edges: wrote 344 edge(s) across 4 type(s) in 1.413s (IMPLEMENTS=12, OF_TYPE=82, ANNOTATED_WITH=119, INSTANTIATES=131)
+2026-08-02 00:17:46,082 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'resolving' done in 3.902s (peak_rss=123MB)
+2026-08-02 00:17:46,082 INFO graph_core.pipeline: [graph_ingest][repo=corpus] resolving: 677 nodes, 870 edges after resolve (657 retained in RAM)
+2026-08-02 00:17:46,082 INFO graph_core.pipeline: [graph_ingest][repo=corpus] bytecode: merged 742 edge(s) (413 CALLS, 117 READS/WRITES) and 21 synthesized node(s)
+2026-08-02 00:17:46,083 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: writing 742 unwritten edge(s) (peak_rss=123MB)
+2026-08-02 00:17:46,282 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: edges written 21/742 (peak_rss=123MB)
+2026-08-02 00:17:46,300 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: edges written 138/742 (peak_rss=123MB)
+2026-08-02 00:17:46,433 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: edges written 551/742 (peak_rss=123MB)
+2026-08-02 00:17:46,484 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: edges written 742/742 (peak_rss=123MB)
+2026-08-02 00:17:46,487 INFO graph_core.store: [graph_store] write_edges: wrote 742 edge(s) across 4 type(s) in 0.404s (CALLS=413, READS=117, CALLS_EXTERNAL=191, CONTAINS=21)
+2026-08-02 00:17:46,489 INFO graph_core.pipeline: [graph_ingest][repo=corpus] streaming writer: wrote 742 previously-unwritten edge(s) (javac CALLS, if any); all 1399 pre-derive edge(s) now durable in Neo4j and slim in RAM
+2026-08-02 00:17:46,489 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: building shared node/parent index (peak_rss=123MB)
+2026-08-02 00:17:46,490 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: overrides from class hierarchy (peak_rss=123MB)
+2026-08-02 00:17:46,493 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: package tree (peak_rss=123MB)
+2026-08-02 00:17:46,496 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: SQL table links (peak_rss=123MB)
+2026-08-02 00:17:46,496 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'deriving' done in 0.414s (peak_rss=123MB)
+2026-08-02 00:17:46,496 INFO graph_core.pipeline: [graph_ingest][repo=corpus] deriving: 690 nodes, 1747 edges before write
+2026-08-02 00:17:46,496 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: writing 15 late node(s) (peak_rss=123MB)
+2026-08-02 00:17:46,523 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: late nodes written 2/15 (peak_rss=123MB)
+2026-08-02 00:17:46,618 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: late nodes written 14/15 (peak_rss=123MB)
+2026-08-02 00:17:46,638 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: late nodes written 15/15 (peak_rss=123MB)
+2026-08-02 00:17:46,640 INFO graph_core.store: [graph_store] write_nodes: wrote 15 node(s) across 3 label(s) in 0.143s (Annotation=2, Repository=1, Package=12)
+2026-08-02 00:17:46,640 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: writing 135 derived edge(s) (peak_rss=123MB)
+2026-08-02 00:17:46,700 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: derived edges written 123/135 (peak_rss=123MB)
+2026-08-02 00:17:46,811 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: derived edges written 135/135 (peak_rss=123MB)
+2026-08-02 00:17:46,813 INFO graph_core.store: [graph_store] write_edges: wrote 135 edge(s) across 2 type(s) in 0.172s (OVERRIDES=12, CONTAINS=123)
+2026-08-02 00:17:46,813 INFO graph_core.pipeline: [graph_ingest][repo=corpus] streaming writer: wrote 135 newly-derived edge(s) (pre-derive edges already durable in Neo4j from Step 1)
+2026-08-02 00:17:46,813 INFO graph_core.pipeline: [graph_ingest][repo=corpus] polymorphic dispatch SKIPPED (GRAPH_POLYMORPHIC_DISPATCH off) — expand caller->override at query time over OVERRIDES instead
+2026-08-02 00:17:46,813 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: validating graph (peak_rss=123MB)
+2026-08-02 00:17:46,814 INFO graph_core.pipeline: [graph_ingest][repo=corpus] stage 'writing_graph' done in 0.318s (peak_rss=123MB)
+2026-08-02 00:17:46,814 INFO graph_core.pipeline: [graph_ingest][repo=corpus] writing_graph: wrote 690 nodes, 1747 edges to Neo4j
+2026-08-02 00:17:47,114 INFO analysis.pass_a: [pass_a] 109 file(s) with functions; model=us.anthropic.claude-haiku-4-5-20251001-v1:0
+2026-08-02 00:17:50,145 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,165 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,165 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,186 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,186 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,187 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,200 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,200 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,220 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,222 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,240 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,276 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,283 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,284 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,292 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,294 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,314 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,315 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,317 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,319 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,319 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,320 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,323 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:50,326 INFO botocore.credentials: Found credentials in environment variables.
+2026-08-02 00:17:59,862 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:17:59,905 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:06,015 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:06,059 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:07,173 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:07,186 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:07,279 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:07,325 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:07,984 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:08,020 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:08,524 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:08,570 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:09,777 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:09,805 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:09,820 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:09,827 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:09,960 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:09,965 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:10,012 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:10,122 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:10,162 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:10,218 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:10,655 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:10,701 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:11,107 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:11,152 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:11,785 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:11,804 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:12,123 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:12,137 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:12,638 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:12,688 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:12,830 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:12,882 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:17,170 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:17,189 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:17,662 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:17,684 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:18,481 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:18,493 INFO analysis.store: [analysis] wrote 1 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:18,519 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:18,789 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:20,134 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:20,155 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:24,746 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:25,046 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:25,788 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:25,803 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:28,333 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:28,350 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:28,708 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:28,724 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:28,821 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:28,852 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:29,799 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:29,816 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:30,486 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:30,514 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:31,834 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:31,850 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:33,094 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:33,108 WARNING analysis.pass_a: [pass_a] com/testcorp/dao/Dao29.java returned no parseable JSON (attempt 1)
+2026-08-02 00:18:33,361 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:33,389 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,170 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,171 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,171 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,188 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,198 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,205 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,349 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,361 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,498 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,524 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:34,735 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:34,756 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:36,328 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:36,518 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:37,016 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:37,045 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:37,440 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:37,469 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:39,022 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:39,046 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:40,552 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:40,571 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:41,859 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:41,887 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:42,326 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:42,351 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:43,059 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:43,077 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:43,503 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:43,519 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:43,888 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:43,911 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:44,821 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:44,839 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:45,737 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:45,766 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:47,167 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:47,182 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:47,695 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:47,714 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:49,225 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:49,242 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:49,383 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:49,401 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:50,455 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:50,475 INFO analysis.store: [analysis] wrote 5 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:51,933 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:51,946 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:51,952 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:51,960 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:51,995 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:52,008 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:52,030 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:52,041 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:52,065 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:52,076 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:52,772 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:52,799 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:53,425 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:53,444 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:53,924 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:53,946 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:54,636 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:54,656 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:54,935 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:54,951 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:55,385 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:55,394 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:58,236 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:58,250 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:18:58,439 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:18:58,458 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:01,102 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:01,131 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:01,506 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:01,523 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:02,538 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:02,555 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:03,354 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:03,376 INFO analysis.store: [analysis] wrote 5 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:04,291 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:04,308 INFO analysis.store: [analysis] wrote 6 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:06,164 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:06,176 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:06,530 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:06,531 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:06,546 INFO analysis.store: [analysis] wrote 5 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:06,557 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:07,370 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:07,387 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:09,410 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:09,440 INFO analysis.store: [analysis] wrote 7 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:09,551 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:09,579 INFO analysis.store: [analysis] wrote 6 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:10,290 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:10,309 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:10,938 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:10,961 INFO analysis.store: [analysis] wrote 6 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:11,919 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:11,938 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:12,368 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:12,370 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:12,391 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:12,400 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:13,910 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:13,929 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:15,132 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:15,162 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:16,259 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:16,288 INFO analysis.store: [analysis] wrote 6 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:17,484 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:17,503 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:18,156 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:18,171 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:18,880 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:18,910 INFO analysis.store: [analysis] wrote 6 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:19,840 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:19,852 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:21,583 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:21,611 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:21,883 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:21,901 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:22,329 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:22,344 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:23,840 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:23,859 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:24,858 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:24,860 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:24,884 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:24,899 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:25,492 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:25,493 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:25,511 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:25,525 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:26,497 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:26,525 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:27,726 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:27,747 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:27,863 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:27,884 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:29,168 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:29,188 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:30,389 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:30,410 INFO analysis.store: [analysis] wrote 4 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:31,424 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:31,449 INFO analysis.store: [analysis] wrote 2 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:34,385 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:34,415 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:35,104 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:35,256 INFO analysis.store: [analysis] wrote 7 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:39,024 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:39,042 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:39,484 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:39,517 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:49,946 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:49,978 INFO analysis.store: [analysis] wrote 3 summary(ies) [model=us.anthropic.claude-haiku-4-5-20251001-v1:0]
+2026-08-02 00:19:49,982 INFO analysis.pass_a: [pass_a] no prompt caching engaged (cache_write=0) — expected when the system prompt is under the model's minimum cacheable prefix; the incremental saving here is body_hash, not caching
+2026-08-02 00:19:49,982 INFO analysis.pass_a: [pass_a] done: {'files_seen': 109, 'files_skipped_fresh': 0, 'functions_summarized': 327, 'functions_skipped_fresh': 0, 'calls_made': 110, 'rereads': 1, 'chunks_rejected': 0, 'throttled_calls': 0, 'hallucinated_callee_rate': 0.3037, 'input_tokens': 408466, 'output_tokens': 328856, 'cache_read_tokens': 0, 'cache_write_tokens': 0, 'errors': [], 'seconds': 123.0}
+2026-08-02 00:19:49,993 INFO analysis.priority: [priority] signal rates: {'scored': 327, 'important': 42, 'entry': 106, 'untrusted': 145, 'sanitizer': 1, 'leak': 33, 'sql_dynamic': 25, 'avg_score': 2.21, 'important_rate': 0.128}
+2026-08-02 00:19:50,098 INFO analysis.reach: [reach] reaches_sink: {'graph_seeds': 30, 'summary_seeds': 11, 'propagated': 241, 'total_marked': 282, 'iterations': 5, 'seconds': 0.1}
+2026-08-02 00:19:50,170 INFO analysis.reach: [reach] from_entry: {'annotated_seeds': 99, 'endpoint_seeds': 0, 'jsp_seeds': 0, 'llm_seeds': 7, 'propagated': 92, 'total_marked': 198, 'iterations': 4, 'seconds': 0.07}
+2026-08-02 00:19:50,174 INFO analysis.reach: [reach] universe: {'total': 348, 'reaches_sink': 282, 'from_entry': 198, 'both': 152, 'universe_fraction': 0.4368}
+2026-08-02 00:19:50,212 INFO analysis.paths: [paths] 152 path(s), depth<=8, in 0.0s
+2026-08-02 00:19:50,223 INFO analysis.paths: [paths] 148 leak path(s)
+2026-08-02 00:19:50,223 INFO analysis.paths: [paths] deduped 300 -> 205 (dropped sub-paths of longer chains)
+2026-08-02 00:19:50,408 INFO analysis.pass_b: [pass_b] 205 path(s) in 86 batch(es); model=us.anthropic.claude-haiku-4-5-20251001-v1:0
+2026-08-02 00:19:58,989 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:19:59,155 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:00,190 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:00,683 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:01,109 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:01,114 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:01,374 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:03,672 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:03,730 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:03,749 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:06,912 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:06,930 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:07,369 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:07,719 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:08,388 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:08,409 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:08,764 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:10,299 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:10,407 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:10,804 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:10,973 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:11,735 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:13,497 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:13,782 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:14,491 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:15,247 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:15,633 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:16,514 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:17,392 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:18,314 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:19,103 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:21,591 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:21,662 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:22,406 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:22,700 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:22,940 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:23,650 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:24,463 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:25,378 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:25,395 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:27,019 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:27,832 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:28,862 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:30,867 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:31,999 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:32,045 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:32,239 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:32,544 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:32,753 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:32,755 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:33,468 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:35,728 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:35,767 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:36,438 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:37,053 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:37,090 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:39,041 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:41,457 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:41,608 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:41,629 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:41,978 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:42,499 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:43,100 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:44,528 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:44,552 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:46,266 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:47,395 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:47,806 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:48,211 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:49,133 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:49,446 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:51,284 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:53,228 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:53,612 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:53,621 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:53,710 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:54,461 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:54,765 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:55,195 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:55,485 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:56,818 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:56,885 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:57,297 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:20:58,561 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:00,168 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:00,861 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:00,867 INFO analysis.pass_b: [pass_b] done: {'paths_considered': 205, 'paths_judged': 205, 'paths_missing_summaries': 0, 'calls_made': 86, 'batches_rejected': 0, 'exploitable': 76, 'defects_not_exploitable': 122, 'needs_expansion': 32, 'input_tokens': 185193, 'output_tokens': 185196, 'cache_read_tokens': 0, 'errors': [], 'seconds': 70.6}
+2026-08-02 00:21:01,054 INFO analysis.pass_c: [pass_c] expanding 32 finding(s) of 198; model=us.anthropic.claude-haiku-4-5-20251001-v1:0
+2026-08-02 00:21:09,388 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:11,447 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:12,233 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:13,149 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:13,364 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:13,819 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:13,851 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:14,155 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:14,337 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:14,438 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:14,636 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:14,985 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:15,032 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:15,957 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:16,371 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:16,418 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:16,472 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:16,732 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:16,806 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:17,034 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:17,909 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:18,772 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:19,956 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:22,532 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:23,417 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:25,587 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:25,983 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:27,130 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:27,131 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:27,743 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:29,134 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:29,372 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:30,505 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:30,684 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:30,685 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:31,220 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:36,649 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:37,979 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:40,784 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:44,285 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:44,289 INFO analysis.pass_c: [pass_c] done: {'findings_in': 32, 'findings_resolved': 29, 'findings_still_unknown': 3, 'confirmed': 18, 'refuted': 11, 'bodies_fetched': 164, 'rounds_used': 48, 'calls_made': 40, 'input_tokens': 74832, 'output_tokens': 63409, 'errors': [], 'seconds': 43.4}
+2026-08-02 00:21:44,437 INFO analysis.pass_d: [pass_d] adjudicating 187 finding(s) (11 already dismissed in Pass C); model=us.anthropic.claude-haiku-4-5-20251001-v1:0
+2026-08-02 00:21:52,623 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:53,126 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:53,484 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:53,521 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:53,614 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:54,264 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:54,275 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:54,653 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:55,800 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:55,827 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,204 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,206 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,383 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,596 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,683 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:56,944 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:57,040 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:57,130 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:57,168 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:58,359 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:21:58,971 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:00,045 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:02,942 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:03,366 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:03,783 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,012 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,501 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,538 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,617 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,901 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:04,982 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:05,127 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:05,166 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:05,468 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:05,836 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:06,053 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:06,106 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:06,263 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:06,371 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:07,062 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:08,188 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:08,297 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:09,908 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:10,865 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:11,886 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:11,891 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:14,452 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:14,695 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:15,253 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:15,259 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:16,892 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:17,105 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:17,607 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:17,672 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:17,914 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:18,222 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:18,426 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:18,742 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:18,938 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:19,246 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:20,577 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:20,692 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:20,790 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:21,004 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:21,315 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:22,011 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:24,879 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:26,924 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:27,038 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:27,139 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:27,337 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:27,512 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:27,564 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:28,008 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:28,770 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:29,282 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:29,293 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:30,438 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:31,009 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:31,335 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:31,845 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:33,276 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:33,769 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:34,149 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:34,365 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:34,557 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:35,424 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:35,838 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:36,593 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:36,861 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:37,374 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:38,562 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:38,830 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:39,220 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:39,934 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:40,032 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:41,882 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:42,281 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:42,851 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:42,904 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:43,064 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:43,216 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:44,758 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:45,359 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:45,423 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:45,569 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:46,166 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:46,248 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:46,310 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:46,406 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:46,834 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:47,551 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:48,327 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:48,808 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:49,560 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:51,401 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:52,018 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:53,040 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:53,750 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:54,885 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:55,075 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:56,015 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:56,725 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:56,726 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:57,648 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:57,672 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:57,837 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:58,158 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:58,280 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:58,310 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:58,786 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:58,886 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:59,055 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:22:59,168 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:01,415 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:01,444 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:02,546 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:02,607 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:02,920 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:03,387 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:03,894 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:04,097 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:04,309 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:05,519 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:06,453 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:08,402 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:08,533 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:08,535 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:08,569 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:08,943 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:09,295 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:09,629 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:09,634 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:10,783 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:10,788 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:11,212 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:12,494 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:12,918 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:12,923 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:12,925 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:12,925 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:13,182 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:13,261 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:14,573 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:15,242 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:15,247 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:16,752 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:16,824 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:18,129 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:18,134 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:19,372 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:19,694 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:20,369 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:21,026 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:21,475 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:21,671 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:22,529 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:23,194 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:23,676 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:24,046 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:24,285 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:24,600 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:24,769 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:25,705 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:26,542 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:27,040 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:27,547 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:28,059 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:28,204 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:28,980 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:31,543 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:31,850 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:32,258 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:33,153 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:33,795 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:33,796 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:33,837 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:35,437 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:35,437 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:36,866 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:37,068 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:37,146 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:37,782 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:38,265 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:38,272 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:39,241 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:39,245 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:39,472 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:39,583 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:39,684 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:40,144 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:40,947 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:42,091 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:42,907 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:44,037 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:44,992 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:45,046 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:45,132 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:45,220 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:45,553 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:45,781 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:46,600 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:46,958 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:47,028 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:47,502 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:47,567 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:48,041 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:48,129 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:48,747 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:49,323 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:49,530 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:49,743 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:50,149 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:52,342 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:54,144 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:55,606 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:55,631 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:55,694 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:56,937 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:57,294 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:57,857 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:58,165 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:58,340 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:58,899 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:23:59,804 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:00,685 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:01,339 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:01,955 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:01,956 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:02,159 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:02,167 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:03,696 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:04,105 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:04,943 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:04,971 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:05,547 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:05,845 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:05,850 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:06,080 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:07,589 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:07,788 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:08,202 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:08,919 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:09,838 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:09,957 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:09,982 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:11,316 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:11,342 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:11,791 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:11,863 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:13,417 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:13,850 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:13,943 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:13,971 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:14,333 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:14,572 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:15,545 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:15,995 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:16,698 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:17,311 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:18,133 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:18,201 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:18,837 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:19,263 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:20,396 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:21,300 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:21,976 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:22,842 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:23,460 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:23,557 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:24,378 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:24,474 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:24,564 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:24,995 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:26,769 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:26,938 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:27,028 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:27,105 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:27,170 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:27,849 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:28,058 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:28,421 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:28,886 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:28,982 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:28,992 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:29,135 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:30,010 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:30,833 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:31,762 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:32,056 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:32,872 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:33,507 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:34,003 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:34,210 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:34,617 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:35,949 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:36,463 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:36,464 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:36,873 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:37,079 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:39,604 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:40,214 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:40,320 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:40,970 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:41,072 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:41,717 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:42,077 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:42,622 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:42,622 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:43,628 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:43,836 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:44,577 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:44,731 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:45,985 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:46,364 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:46,423 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:47,699 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:47,743 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:48,138 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:48,196 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:48,278 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:48,421 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:49,103 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:49,882 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:51,481 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:53,058 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:53,170 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:54,166 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:54,167 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:54,272 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:55,105 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:55,801 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:56,430 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:56,619 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:56,683 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:57,208 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:57,246 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:58,382 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:58,407 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:58,519 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:24:58,549 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:00,013 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:00,632 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:00,939 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:02,832 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:02,845 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:03,188 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:03,452 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:03,704 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:04,727 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:05,785 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:06,308 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:07,488 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:07,739 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:07,812 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:07,875 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:08,206 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:09,845 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:10,096 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:10,124 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:11,575 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:11,587 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:11,898 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:11,921 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:12,058 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:13,326 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:13,331 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:13,656 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:15,469 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:15,776 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:16,195 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:17,014 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:18,114 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:18,347 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:19,489 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:19,699 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:19,746 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:20,306 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:21,499 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:21,858 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:21,896 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:22,115 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:22,672 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:23,054 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:24,385 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:25,411 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:25,492 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:25,715 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:25,717 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:26,024 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:26,583 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:27,538 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:27,874 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:28,022 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:28,544 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:28,995 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:29,085 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:30,021 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:31,142 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:31,787 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:32,092 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:32,204 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:32,887 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:33,301 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:34,308 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:34,340 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:34,833 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:34,844 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:36,781 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:37,340 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:37,978 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:38,924 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:39,102 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:39,522 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:40,155 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:40,565 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:41,017 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:41,579 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:41,644 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:41,736 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:41,921 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:42,716 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:43,537 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:44,046 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:44,051 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:44,539 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:45,377 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:47,528 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:47,738 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:48,555 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:48,709 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:48,736 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:49,211 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:49,676 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:49,869 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:50,030 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:50,792 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:50,980 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:51,533 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:51,931 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:52,437 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:54,315 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:54,829 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:54,947 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:55,033 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:55,191 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:55,349 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:57,604 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:59,233 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:59,282 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:25:59,418 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:00,023 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:00,192 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:00,324 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:00,823 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:01,197 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:01,353 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:01,611 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:01,725 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:03,643 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:04,015 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:04,533 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:04,738 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:05,028 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:05,656 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:06,271 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:06,472 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:07,517 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:08,407 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:09,239 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:10,257 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:10,261 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:10,261 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:10,332 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:11,100 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:11,718 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:12,540 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:12,946 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:13,121 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:13,434 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:13,471 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:13,833 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:13,844 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:14,962 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:15,373 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:15,639 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:16,701 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:16,834 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:17,130 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:17,430 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:19,162 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:19,846 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:19,908 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:19,984 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:21,194 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:21,882 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:22,450 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:22,859 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:24,622 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:24,626 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:25,011 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:25,048 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:25,055 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:25,815 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:25,900 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:26,145 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:26,215 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:26,855 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:26,960 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:27,465 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:28,276 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:28,290 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:28,317 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:30,025 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:30,302 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:30,309 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:30,709 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:31,244 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:31,869 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:34,316 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:34,609 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:34,678 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:35,101 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:35,659 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:35,759 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:36,781 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:37,293 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:38,419 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:38,617 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:39,389 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:39,624 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:39,751 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:39,753 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:40,672 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:40,813 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:40,814 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:41,594 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:41,982 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:43,340 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:44,362 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:44,363 INFO httpx: HTTP Request: POST https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke "HTTP/1.1 200 OK"
+2026-08-02 00:26:44,372 INFO analysis.pass_d: [pass_d] done: {'findings_in': 198, 'confirmed': 71, 'killed': 127, 'kill_rate': 0.641, 'votes_cast': 561, 'calls_made': 561, 'input_tokens': 451267, 'output_tokens': 718517, 'errors': [], 'seconds': 300.1}
+2026-08-02 00:26:44,572 INFO analysis.findings: [findings] deduped 71 -> 23 distinct defect(s)
+2026-08-02 00:26:44,925 INFO analysis.findings: [findings] report: {'reported': 23, 'deduped_away': 48, 'suppressed_by_prior_dismissal': 0, 'killed_this_run': 127, 'dismissals_recorded': 0, 'by_severity': {'critical': 11, 'high': 11, 'medium': 1}, 'by_kind': {'sql_injection': 11, 'resource_leak': 12}}
+2026-08-02 00:26:44,925 INFO analysis.pipeline: [pipeline] complete in 537.9s — 23 finding(s) reported
+[env] loaded 29 setting(s) from .env
+[creds] AWS_ACCESS_KEY_ID set, region=us-east-1
+
+[ingest] D:\abhinav\second_developer\graph_build_test\test_corpora/java_interconnected -> repo=corpus
+[ingest] 111 file(s), 690 node(s), 1747 edge(s) in 10.1s
+[ingest] bytecode available=True match_rate=100.0% coverage=98.2% synthesized=21 (skipped_no_lines=0)
+
+[analysis] starting pipeline
+
+==========================================================================
+STAGE REPORTS
+==========================================================================
+
+pass_a:
+{
+  "files_seen": 109,
+  "files_skipped_fresh": 0,
+  "functions_summarized": 327,
+  "functions_skipped_fresh": 0,
+  "calls_made": 110,
+  "rereads": 1,
+  "chunks_rejected": 0,
+  "throttled_calls": 0,
+  "hallucinated_callee_rate": 0.3037,
+  "input_tokens": 408466,
+  "output_tokens": 328856,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 0,
+  "errors": [],
+  "seconds": 123.0
+}
+
+signals:
+{
+  "scored": 327,
+  "important": 42,
+  "entry": 106,
+  "untrusted": 145,
+  "sanitizer": 1,
+  "leak": 33,
+  "sql_dynamic": 25,
+  "avg_score": 2.21,
+  "important_rate": 0.128
+}
+
+reach:
+{
+  "reaches_sink": {
+    "graph_seeds": 30,
+    "summary_seeds": 11,
+    "propagated": 241,
+    "total_marked": 282,
+    "iterations": 5,
+    "seconds": 0.1
+  },
+  "from_entry": {
+    "annotated_seeds": 99,
+    "endpoint_seeds": 0,
+    "jsp_seeds": 0,
+    "llm_seeds": 7,
+    "propagated": 92,
+    "total_marked": 198,
+    "iterations": 4,
+    "seconds": 0.07
+  },
+  "universe": {
+    "total": 348,
+    "reaches_sink": 282,
+    "from_entry": 198,
+    "both": 152,
+    "universe_fraction": 0.4368
+  }
+}
+
+pass_b:
+{
+  "paths_considered": 205,
+  "paths_judged": 205,
+  "paths_missing_summaries": 0,
+  "calls_made": 86,
+  "batches_rejected": 0,
+  "exploitable": 76,
+  "defects_not_exploitable": 122,
+  "needs_expansion": 32,
+  "input_tokens": 185193,
+  "output_tokens": 185196,
+  "cache_read_tokens": 0,
+  "errors": [],
+  "seconds": 70.6
+}
+
+pass_c:
+{
+  "findings_in": 32,
+  "findings_resolved": 29,
+  "findings_still_unknown": 3,
+  "confirmed": 18,
+  "refuted": 11,
+  "bodies_fetched": 164,
+  "rounds_used": 48,
+  "calls_made": 40,
+  "input_tokens": 74832,
+  "output_tokens": 63409,
+  "errors": [],
+  "seconds": 43.4
+}
+
+pass_d:
+{
+  "findings_in": 198,
+  "confirmed": 71,
+  "killed": 127,
+  "kill_rate": 0.641,
+  "votes_cast": 561,
+  "calls_made": 561,
+  "input_tokens": 451267,
+  "output_tokens": 718517,
+  "errors": [],
+  "seconds": 300.1
+}
+
+==========================================================================
+SCORED AGAINST GROUND TRUTH
+==========================================================================
+{
+  "scored": true,
+  "leaks": {
+    "tp": 7,
+    "fp": 1,
+    "fn": 8,
+    "recall": 0.467,
+    "precision": 0.875
+  },
+  "injections": {
+    "tp": 11,
+    "fp": 0,
+    "fn": 4,
+    "recall": 0.733,
+    "precision": 1.0
+  },
+  "graph_invisible_leaks": {
+    "total": 8,
+    "found": 4,
+    "recall": 0.5
+  },
+  "sanitized_false_positives": []
+}
+
+counts: {
+  "reported": 23,
+  "deduped_away": 48,
+  "suppressed_by_prior_dismissal": 0,
+  "killed_this_run": 127,
+  "dismissals_recorded": 0,
+  "by_severity": {
+    "critical": 11,
+    "high": 11,
+    "medium": 1
+  },
+  "by_kind": {
+    "sql_injection": 11,
+    "resource_leak": 12
+  }
+}
+
+full result -> D:\abhinav\second_developer\graph_build_test\runs\analysis_corpus.json

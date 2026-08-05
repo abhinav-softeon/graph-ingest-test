@@ -31,7 +31,7 @@ from .config import (
     javac_batch_size,
     javac_timeout_seconds,
 )
-from .bytecode_resolver import BytecodeReport, resolve_java_bytecode
+from .bytecode_resolver import BytecodeReport, discover_class_sources, resolve_java_bytecode
 from .discovery import FileInfo, discover, list_candidate_relpaths
 from .extract_cache import get_extract_cache
 from .ids import make_id
@@ -597,10 +597,25 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     if bytecode and has_java:
         if on_stage:
             on_stage("bytecode", {})
+        # No class files anywhere? Optionally compile them (GRAPH_JAVAC_AUTOCOMPILE),
+        # always with -g. Without debug info the LineNumberTable is absent and every
+        # lambda / anonymous class / <clinit> is silently dropped by node synthesis,
+        # so a compile without it would be worse than no compile at all. A real
+        # build's output always wins — this only fires when nothing was found.
+        explicit_roots = bytecode_class_roots() or None
+        if explicit_roots is None:
+            from .javac_autocompile import ensure_class_roots
+            discovered = discover_class_sources(root)
+            autoroots, autorep = ensure_class_roots(root, discovered)
+            if autorep.get("attempted"):
+                _beat("bytecode", f"compiling {autorep.get('sources', 0)} source(s) with javac -g")
+                _log.info("[graph_ingest][repo=%s] autocompile: %s", repo, autorep)
+            explicit_roots = autoroots or None
+
         _beat("bytecode", "reading Java calls from compiled bytecode")
         bytecode_edges, bytecode_nodes, bytecode_report = resolve_java_bytecode(
             all_nodes, root, repo,
-            class_roots=bytecode_class_roots() or None,
+            class_roots=explicit_roots,
             java_files_seen=sum(1 for p in all_relpaths if p.lower().endswith(".java")),
             min_match_rate=bytecode_min_match_rate(),
             include_external_other=external_all_calls(),
