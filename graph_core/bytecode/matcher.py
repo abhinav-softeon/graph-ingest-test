@@ -214,6 +214,47 @@ class NodeIndex:
             stats.ambiguous_method += 1
         return ""
 
+    def override_target(self, ancestor_binary: str, method_name: str,
+                        descriptor: str) -> str:
+        """Node id of the method in ``ancestor_binary`` that a subclass method
+        (``method_name`` + ``descriptor``) overrides, or '' if there is none.
+
+        Deliberately STRICTER than method_id, which narrows by arity and only
+        compares parameter types when several same-arity overloads survive.
+        That shortcut is right for a call site (the bytecode names one specific
+        method, so the single same-arity candidate must be it) and wrong here:
+        an override has to be *proved*, and `foo(String)` does not override
+        `foo(int)` even though both are (name, arity=1). Accepting an arity-only
+        match is exactly the false pair that pipeline._derive_overrides' own
+        name+param_count test produces — and a wrong OVERRIDES does not stay
+        contained, it fans out into wrong polymorphic CALLS. So the erased
+        parameter types must match here even when there is only one candidate.
+
+        The return type is ignored on purpose. Java permits a covariant return
+        (`Object clone()` overridden as `Foo clone()`), and javac records that
+        with a separate bridge method rather than by changing the override
+        relationship — so comparing whole descriptors would miss those.
+        """
+        source_fqn = binary_to_source_fqn(ancestor_binary)
+        if not source_fqn:
+            return ""
+        name = method_lookup_name(source_fqn, method_name)
+        try:
+            wanted = descriptor_simple_types(descriptor)
+        except Exception:  # noqa: BLE001 - malformed descriptor, treat as no match
+            return ""
+        candidates = self._methods.get((source_fqn, name, len(wanted)))
+        if not candidates:
+            return ""
+        exact = [
+            node_id for node_id, ptypes in candidates
+            if [normalize_type(t) for t in ptypes] == wanted
+        ]
+        # More than one match means the ancestor's own overloads are
+        # indistinguishable after erasure, which cannot happen in valid Java —
+        # so it signals an index problem, not a real choice. Don't guess.
+        return exact[0] if len(exact) == 1 else ""
+
 
 def should_skip_method(method: MethodInfo) -> bool:
     """Compiler-generated members that must never become graph nodes or edges.
@@ -225,6 +266,24 @@ def should_skip_method(method: MethodInfo) -> bool:
     compiler noise silently discards every call made inside a lambda.
     """
     return (method.is_synthetic or method.is_bridge) and not method.is_lambda_body
+
+
+def can_override(method: MethodInfo) -> bool:
+    """Whether this method can participate in an override relationship at all.
+
+    Static methods HIDE rather than override, private methods are invisible to
+    subclasses, and constructors / static initializers are not inherited — so
+    none of them form an OVERRIDES edge however well the signatures line up.
+    Lambda bodies are synthetic members of the enclosing class, not declarations
+    a subclass could override either.
+    """
+    return not (
+        method.is_static
+        or method.is_private
+        or method.is_constructor
+        or method.is_class_initializer
+        or method.is_lambda_body
+    )
 
 
 def caller_needs_synthesis(info: ClassInfo, method: MethodInfo) -> bool:

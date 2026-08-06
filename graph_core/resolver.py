@@ -194,7 +194,16 @@ def resolve(
     # it into the qualified-class matcher below would risk matching an
     # unrelated same-tail-segment class name.
     wildcard_pkgs_by_file: dict[str, set[str]] = defaultdict(set)
+    # Collected here rather than in a scan of their own: the ancestor pre-pass
+    # below needs every EXTENDS/IMPLEMENTS ref, and this loop is already walking
+    # all of them (~5M on the measured repo). Picking them up in passing keeps
+    # that to one traversal. The list itself is tiny — HANDOFF measured 8,320
+    # EXTENDS + 1,138 IMPLEMENTS.
+    hierarchy_refs: list[RawRef] = []
     for ref in refs:
+        if ref.type in ("EXTENDS", "IMPLEMENTS"):
+            hierarchy_refs.append(ref)
+            continue
         if ref.type != "IMPORTS" or not ref.ref_file:
             continue
         if ref.kind_hint == "import_wildcard":
@@ -449,6 +458,15 @@ def resolve(
                     return _apply_arity(ref, imported_hits, "imports")
 
         # (4) Receiver-type narrowing.
+        #
+        # Each of the three receiver steps below tries the class's OWN methods
+        # first and only then its inherited ones. That order is not incidental:
+        # a subclass method shadows the ancestor's, so consulting the hierarchy
+        # first would resolve overridden calls to the wrong declaration. The
+        # inherited path is tagged `*_inherited` so it stays separable — its
+        # precision is that of the receiver type AND of the hierarchy edge it
+        # walked, which is a compiler fact where bytecode covered the class and a
+        # narrowed name match elsewhere.
         if ref.recv_type and ref.recv_type in classes_by_name:
             src_file = src_node.file if src_node else ""
             narrowed = _narrow_classes_for_recv(classes_by_name[ref.recv_type], src_file)
@@ -457,6 +475,9 @@ def resolve(
                 hits.extend(_members(methods_of_class, (ccls.id, name)))
             if hits:
                 return _apply_arity(ref, hits, "receiver_type_hint")
+            inherited = _inherited_members([c.id for c in narrowed], name)
+            if inherited:
+                return _apply_arity(ref, inherited, "receiver_type_hint_inherited")
 
         # self/cls dispatch -> a method of the enclosing class.
         if ref.recv in ("self", "cls"):
@@ -465,6 +486,9 @@ def resolve(
                 m = _members(methods_of_class, (cid, name))
                 if m:
                     return _apply_arity(ref, m, "receiver_type")
+                inherited = _inherited_members([cid], name)
+                if inherited:
+                    return _apply_arity(ref, inherited, "receiver_type_inherited")
 
         # Receiver is an in-repo class name -> that class's methods.
         if ref.recv and ref.recv not in ("self", "cls") and ref.recv in classes_by_name:
@@ -475,6 +499,9 @@ def resolve(
                 hits.extend(_members(methods_of_class, (ccls.id, name)))
             if hits:
                 return _apply_arity(ref, hits, "receiver_type")
+            inherited = _inherited_members([c.id for c in narrowed], name)
+            if inherited:
+                return _apply_arity(ref, inherited, "receiver_type_inherited")
 
         # (5) Arity-only fallback if no stronger narrowing worked.
         return _apply_arity(ref, pool, "name")
@@ -545,9 +572,123 @@ def resolve(
         # (6) Give up narrowing — global name match, still ambiguous if >1.
         return pool, "name"
 
+    # ---- ancestor pre-pass (inheritance-aware call resolution) ---------
+    # methods_of_class holds a class's OWN methods only, so a call to a method it
+    # INHERITS finds nothing there and falls through to the arity-only fallback,
+    # which fans out across every same-named method in the repo. HANDOFF measured
+    # the scale of this: 8,236,060 of 8.38M REFERENCES carry
+    # `name+arity+unknown_recv`, i.e. "receiver type known, method not found on
+    # it" — which in an Abstract*/I*-heavy codebase is overwhelmingly inheritance,
+    # not a genuine miss. Those all get demoted to weak REFERENCES edges today.
+    #
+    # This must be a PRE-pass, not part of the main loop. EXTENDS/IMPLEMENTS are
+    # themselves RawRefs resolved in that same loop, so consulting a hierarchy
+    # built as it goes would make a call's resolution depend on whether its
+    # ancestor happened to be resolved first — results would vary with input
+    # order. Two sources, cheap either way (HANDOFF: 8,320 EXTENDS + 1,138
+    # IMPLEMENTS against ~5M refs):
+    #   1. hierarchy edges a precise tier already produced. bytecode_resolver
+    #      emits EXTENDS/IMPLEMENTS at EXTRACTED straight from the class header
+    #      (JVMS 4.1 super_class/interfaces), so where bytecode covered a class
+    #      its ancestry is a compiler fact, not a name match.
+    #   2. unresolved EXTENDS/IMPLEMENTS refs, resolved here via narrow_type —
+    #      the same import/package-aware narrowing those edges would get in the
+    #      main loop, just run early. Only unique matches are taken: an ambiguous
+    #      supertype would poison every inherited call under it.
+    _t_anc = time.monotonic()
+    direct_supers: dict[str, list[str]] = defaultdict(list)
+    for e in edges:
+        if e.type in ("EXTENDS", "IMPLEMENTS"):
+            direct_supers[e.src].append(e.dst)
+    _anc_from_edges = sum(len(v) for v in direct_supers.values())
+    for ref in hierarchy_refs:
+        src_cls = enclosing_class_id(ref.src) if ref.src not in nodes_by_id else ref.src
+        if src_cls is None:
+            continue
+        src_node = nodes_by_id.get(src_cls)
+        if src_node is None or src_node.label != "Class":
+            continue
+        cands, _strat = narrow_type(ref)
+        # Exactly one candidate or nothing. A wrong supertype is worse here than
+        # a missing one: it redirects every inherited call on the subclass.
+        if len(cands) == 1 and cands[0].id != src_cls:
+            if cands[0].id not in direct_supers[src_cls]:
+                direct_supers[src_cls].append(cands[0].id)
+
+    def _ancestor_chain(class_id: str) -> list[str]:
+        """Ancestors nearest-first: direct supertypes, then theirs, and so on.
+
+        Breadth-first, so a method declared on the immediate superclass wins over
+        the same method further up — which is what Java dispatch does. `seen`
+        also makes this safe against a cycle in a malformed hierarchy (invalid
+        Java, but this runs on whatever was uploaded).
+        """
+        out: list[str] = []
+        seen_c: set[str] = {class_id}
+        frontier = list(direct_supers.get(class_id, ()))
+        while frontier:
+            nxt: list[str] = []
+            for cid in frontier:
+                if cid in seen_c:
+                    continue
+                seen_c.add(cid)
+                out.append(cid)
+                nxt.extend(direct_supers.get(cid, ()))
+            frontier = nxt
+        return out
+
+    # Memoized: a deep hierarchy is walked once per class, not once per call site.
+    _chain_cache: dict[str, list[str]] = {}
+
+    def _inherited_members(class_ids: list[str], name: str) -> list[Node]:
+        """Methods named `name` inherited by any of `class_ids`.
+
+        Stops at the FIRST ancestor of each starting class that declares the
+        name — the nearest declaration is the one a call actually dispatches to,
+        and collecting matches from further up would recreate the same fan-out
+        this exists to remove.
+        """
+        hits: list[Node] = []
+        for cid in class_ids:
+            chain = _chain_cache.get(cid)
+            if chain is None:
+                chain = _ancestor_chain(cid)
+                _chain_cache[cid] = chain
+            for anc in chain:
+                found = _members(methods_of_class, (anc, name))
+                if found:
+                    hits.extend(found)
+                    break
+        return hits
+
+    _log.info(
+        "[resolve][repo=%s] ancestor index: %s class(es) with supertypes "
+        "(%s edge-sourced, %s ref-resolved) in %.3fs",
+        repo, len(direct_supers), _anc_from_edges,
+        sum(len(v) for v in direct_supers.values()) - _anc_from_edges,
+        time.monotonic() - _t_anc,
+    )
+
     _log.info(
         "[resolve][repo=%s] lookup indices built in %.3fs", repo, time.monotonic() - _t_index_start,
     )
+
+    # Observability for the two fan-out caps and the ancestor fallback. Without
+    # these, both caps drop work SILENTLY — the coverage counters record it but
+    # resolve() never logged coverage at all, so a cap could be discarding
+    # millions of sites and nothing in the output would say so. A bounded
+    # dict of counters rather than nonlocal ints, so the nested emit/resolve
+    # helpers can increment without closure rebinding (and Cython compiles it
+    # the same either way).
+    stats_counters: dict[str, int] = {
+        "cap_dropped_emit": 0,          # emit(): bare-name fan-out over the cap
+        "cap_dropped_unknown_recv": 0,  # the demotion branch, previously uncapped
+    }
+    # Edges by strategy — HANDOFF lists this as a tracked metric and nothing
+    # produced it. One dict increment per emitted edge (~70ns), which is the
+    # cheapest possible place to get the tier breakdown that tells you whether
+    # the ancestor fallback (`*_inherited`) and bytecode tiers actually fired.
+    strategy_counts: dict[str, int] = defaultdict(int)
 
     extra_nodes: list[Node] = []
     annotation_ids: dict[str, str] = {}
@@ -600,6 +741,7 @@ def resolve(
         strategy: str = "",
         edge_type: str | None = None,
     ) -> Edge:
+        strategy_counts[strategy or "(none)"] += 1
         # Heuristic edges are still EXTRACTED-origin (the reference is observed in
         # source); the *resolution* uncertainty is carried by `confidence`.
         return Edge(
@@ -632,6 +774,7 @@ def resolve(
             if (_name_cap and strategy.startswith("name")
                     and len(wanted) > _name_cap):
                 cov.unresolved += 1
+                stats_counters["cap_dropped_emit"] += 1
                 return
             for c in wanted:
                 out_edges.append(
@@ -823,6 +966,23 @@ def resolve(
                         strategy=f"{strategy}+unknown_recv", edge_type="REFERENCES",
                     ))
                     rcov.resolved += 1
+                # AMBIGUITY CAP, applied here too — this branch bypasses emit(),
+                # so until now it was the one fan-out path with NO cap at all,
+                # and it is by far the largest: HANDOFF measured 8,236,060 of
+                # 8.38M REFERENCES arriving here (`name+arity+unknown_recv`). Every
+                # one of those sites emits one edge PER same-named candidate, of
+                # which at most one can be right, and the AMBIGUOUS bucket as a
+                # whole measured 0.1% precision while contributing 1.0% recall
+                # (HANDOFF 3.2). Not allocating them saves memory three times
+                # over — in resolve, in derive's whole-graph passes, and in the
+                # write — which is what makes the build fit a hard RAM cap.
+                #
+                # Reuses the same _name_cap dial and the same `name*` scoping as
+                # emit(), so one setting governs both paths and the trusted tiers
+                # (same_scope/same_file/imports/receiver_type) stay uncapped.
+                elif _name_cap and len(wanted) > _name_cap:
+                    rcov.unresolved += 1
+                    stats_counters["cap_dropped_unknown_recv"] += 1
                 else:
                     for c in wanted:
                         out_edges.append(make_edge(
@@ -1026,6 +1186,44 @@ def resolve(
             _sink_flush()
     finally:
         gc.unfreeze()
+
+    # ---- resolve summary -----------------------------------------------
+    # resolve() previously returned `coverage` and logged NONE of it, so the only
+    # way to see what a multi-million-ref pass actually did was to query Neo4j
+    # afterwards. These three lines are the difference between "the run finished"
+    # and "here is what it decided".
+    for _rt, _c in sorted(coverage.items()):
+        if not _c.total:
+            continue
+        _log.info(
+            "[resolve][repo=%s] %-16s total=%s resolved=%s ambiguous=%s "
+            "unresolved=%s external=%s (%.1f%% of in-repo targets pinned)",
+            repo, _rt, _c.total, _c.resolved, _c.ambiguous, _c.unresolved,
+            _c.external, _c.pct(),
+        )
+
+    # Top tiers only: a big repo produces a long tail of strategy variants and
+    # dumping all of them buries the ones that matter.
+    _top = sorted(strategy_counts.items(), key=lambda kv: -kv[1])[:15]
+    _log.info(
+        "[resolve][repo=%s] edges by strategy (top %s of %s): %s",
+        repo, len(_top), len(strategy_counts),
+        ", ".join(f"{k}={v}" for k, v in _top),
+    )
+    # The ancestor fallback's actual payoff, as opposed to the size of the index
+    # it built. HANDOFF measured 8,236,060 refs landing in the
+    # `name+arity+unknown_recv` bucket because a class's own methods were searched
+    # but its inherited ones were not; this is how many of those now bind to a
+    # real declaration instead.
+    _inherited = sum(v for k, v in strategy_counts.items() if "_inherited" in k)
+    _log.info(
+        "[resolve][repo=%s] inheritance-aware resolution produced %s edge(s); "
+        "ambiguity cap (max %s candidates) dropped %s bare-name site(s) and %s "
+        "unknown-receiver site(s)",
+        repo, _inherited, _name_cap,
+        stats_counters["cap_dropped_emit"],
+        stats_counters["cap_dropped_unknown_recv"],
+    )
 
     return extra_nodes, out_edges, coverage
 

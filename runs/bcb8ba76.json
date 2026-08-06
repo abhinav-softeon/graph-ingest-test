@@ -1,0 +1,34 @@
+{
+  "run_id": "bcb8ba76",
+  "project": "experiment",
+  "started_at": 1786002085.2713325,
+  "finished_at": 1786002395.6503565,
+  "total_duration_s": 310.379,
+  "overall_peak_mb": 3022.3,
+  "error": "a graph build for 'experiment' is already in progress; try again shortly",
+  "config": {
+    "project": "experiment",
+    "repo_tag": "experiment",
+    "javac": true,
+    "bytecode": true,
+    "javac_timeout_s": 3600.0,
+    "extract_batch_size": 2000,
+    "extract_workers": 6,
+    "checkpoint_root": "./.graph_checkpoints",
+    "streaming_ingest": true,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 12
+  },
+  "result_counts": {},
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 294.561,
+      "mem_start_mb": 2713.6,
+      "mem_end_mb": 2985.6,
+      "mem_peak_mb": 3022.3
+    }
+  ]
+}

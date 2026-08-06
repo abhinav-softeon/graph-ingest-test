@@ -41,6 +41,33 @@ try:
 except Exception:  # noqa: BLE001 - private API; never break the app over logging
     logging.getLogger("streamlit").setLevel(logging.ERROR)
 
+# Capture the build's own log records into a bounded ring buffer so the UI can
+# show the full step-by-step history, not just the current stage. Installed at
+# import time (before any build thread starts) and additive — the stdout handler
+# that `docker compose logs` reads is left exactly as it was.
+from instrumentation import log_stream
+
+log_stream.install()
+
+# Build handle at MODULE scope, not only in st.session_state.
+#
+# The build runs on a thread inside this process while its handle lived solely in
+# st.session_state — which is per browser session. A page refresh starts a NEW
+# session, so session_state came back empty and the UI lost the build completely:
+# no timer, no log panel, no STOP button, while the thread carried on running and
+# logging to stdout. The work was fine; the only way to see it was the terminal.
+#
+# A module global survives session loss because Streamlit re-executes the script
+# on each rerun but keeps the module imported in the same process, so a fresh
+# session can re-attach to a build already in flight. Sharing it across browser
+# sessions is correct here — this is a single-operator tool, and one machine can
+# only run one of these builds at a time anyway (the namespace lock enforces it).
+#
+# What this still cannot survive: the process itself dying (`docker compose
+# restart`, an OOM kill). The build thread is a daemon of this process, so it goes
+# with it — no in-process handle can outlive that.
+_ACTIVE_BUILD: dict | None = None
+
 # Running this file with plain `python ui/app.py` starts Streamlit in "bare
 # mode": every widget call is a no-op, so NOTHING renders and you get one
 # "missing ScriptRunContext" warning per widget. Fail loudly instead of leaving
@@ -334,6 +361,34 @@ unlock_btn = _col_unlock.button(
 )
 
 status_box = st.empty()
+# Rendered by _render_log_panel() below, in the build monitor. Declared here so
+# the live view and the finished/failed views can share one implementation.
+LOG_PANEL_HEIGHT = 420
+
+
+def _render_log_panel(*, live: bool) -> None:
+    """Scrolling view of every log line this run has emitted.
+
+    Shown while the build runs AND after it ends, including on failure — a failed
+    build is exactly when the preceding steps matter most, and previously the UI
+    replaced them with a single exception string.
+    """
+    lines = log_stream.tail(1200)
+    if not lines:
+        return
+    header = f"Live log ({log_stream.line_count()} lines)" if live else \
+             f"Run log ({log_stream.line_count()} lines)"
+    with st.expander(header, expanded=True):
+        hint = log_stream.dropped_hint()
+        if hint:
+            st.caption(hint)
+        else:
+            st.caption("Same records the container terminal shows "
+                       "(`docker compose logs -f`), kept in a bounded buffer.")
+        # A height-constrained container scrolls instead of stretching the page to
+        # thousands of lines; st.code keeps it monospaced and copyable.
+        with st.container(height=LOG_PANEL_HEIGHT):
+            st.code("\n".join(lines), language="log")
 
 if unlock_btn:
     _apply_neo4j_env(neo4j_uri, neo4j_user, neo4j_password, neo4j_database)
@@ -401,9 +456,21 @@ if run_btn:
         cancel_event = threading.Event()
         result_holder: dict = {}
         stage_state = {"text": "starting…"}
+        # Start the log panel on this run rather than showing the previous run's
+        # tail above the new run's first lines.
+        log_stream.clear()
 
         def _on_stage(stage, detail):
-            stage_state["text"] = f"{stage} — {detail}"
+            # pipeline formats this once, for both the terminal and here, so the
+            # two never drift. The fallback keeps this working if a caller ever
+            # fires on_stage without going through that wrapper — previously this
+            # line printed the raw dict repr, so real progress like
+            # "3,412/16,500 (20.7%)" showed up as "{'done': 3412, ...}".
+            d = detail or {}
+            stage_state["text"] = d.get("text") or f"{stage} — {d}"
+            peak = d.get("peak_rss_mb")
+            if peak:
+                stage_state["peak_mb"] = peak
 
         def _worker():
             try:
@@ -417,15 +484,32 @@ if run_btn:
 
         worker = threading.Thread(target=_worker, name="graph-build", daemon=True)
         worker.start()
-        st.session_state["build"] = {
+        _handle = {
             "thread": worker, "result": result_holder, "start": time.time(),
             "cancel": cancel_event, "stage": stage_state, "project": project,
         }
+        # Both: session_state for the normal path, module scope so a refreshed
+        # page (new session) can still find a build already in flight.
+        st.session_state["build"] = _handle
+        _ACTIVE_BUILD = _handle
         st.rerun()
 
 # --- Non-blocking build monitor: runs on every rerun; renders the live timer +
 # RAM + a working STOP button while the worker thread runs. ---
+# Falls back to the module-level handle so a page refresh re-attaches to a running
+# build instead of losing it (see _ACTIVE_BUILD above). Re-seeding session_state
+# means the rest of this block, and the cleanup at the end, behave identically
+# whichever way the handle was found.
 _build = st.session_state.get("build")
+if _build is None and _ACTIVE_BUILD is not None:
+    _build = _ACTIVE_BUILD
+    st.session_state["build"] = _build
+    if _build["thread"].is_alive():
+        st.info(
+            f"Re-attached to the build for '{_build['project']}' already running "
+            "in this container — the page was reloaded, the build was not "
+            "interrupted."
+        )
 if _build is not None:
     _alive = _build["thread"].is_alive()
     _elapsed = time.time() - _build["start"]
@@ -447,6 +531,7 @@ if _build is not None:
                 "namespace lock is released automatically once it stops. If it's wedged "
                 "in a non-cancellable phase, use `docker stop` / Ctrl-C, then Unlock."
             )
+        _render_log_panel(live=True)
         time.sleep(0.5)
         st.rerun()
     else:
@@ -454,9 +539,14 @@ if _build is not None:
         if "error" in _res:
             _exc = _res["error"]
             status_box.error(f"Stopped/failed: {type(_exc).__name__}: {_exc}")
+            # The log is the only record of WHERE it died — an OOM kill or a
+            # cancellation leaves no run report at all, so this is the whole
+            # diagnosis. Render it before anything else on the failure path.
+            _render_log_panel(live=False)
         elif "value" in _res:
             _report = _res["value"]
             status_box.success(f"Done in {_report['total_duration_s']}s — peak {_report['overall_peak_mb']} MB")
+            _render_log_panel(live=False)
 
             # Which precise tier actually covered what. A silent fallback to the
             # heuristic looks identical to success in node/edge counts, so the
@@ -508,7 +598,16 @@ if _build is not None:
             st.json(_report)
         else:
             status_box.warning("Build thread ended without a result.")
-        del st.session_state["build"]
+        # Clear BOTH, or the finished build is re-attached on every later rerun
+        # and its result panel never goes away.
+        st.session_state.pop("build", None)
+        _ACTIVE_BUILD = None
+elif log_stream.line_count():
+    # No build handle at all — e.g. the container was restarted, which kills the
+    # build thread but leaves this process's log buffer from whatever ran before,
+    # or the run finished in an earlier session. Show the log rather than an empty
+    # page: it is the only remaining record of what happened.
+    _render_log_panel(live=False)
 
 st.divider()
 st.caption("Past runs: see runs/index.jsonl for a summary of every run, runs/<id>.json for full detail.")

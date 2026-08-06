@@ -50,7 +50,8 @@ from .external_api import (
     classify_external, external_display, external_id, external_key,
 )
 from .bytecode.matcher import (
-    MatchStats, NodeIndex, binary_to_source_fqn, caller_needs_synthesis, should_skip_method,
+    MatchStats, NodeIndex, binary_to_source_fqn, caller_needs_synthesis, can_override,
+    should_skip_method,
 )
 from .ids import make_id
 from .models import Confidence, Edge, Node, Origin
@@ -73,6 +74,12 @@ class BytecodeReport:
     classes_failed: int = 0
     call_edges: int = 0
     field_edges: int = 0
+    hierarchy_edges: int = 0        # EXTENDS + IMPLEMENTS from the class header
+    override_edges: int = 0         # OVERRIDES proven by erased-descriptor match
+    # Classes whose ancestor chain ran into an in-repo class this pass did not
+    # parse. Their OVERRIDES answer is incomplete, so the heuristic must stay
+    # enabled for their methods — tracked rather than silently tolerated.
+    override_chains_truncated: int = 0
     external_edges: int = 0         # CALLS_EXTERNAL emitted
     external_nodes: int = 0         # distinct External targets synthesized
     synthesized_nodes: int = 0
@@ -89,6 +96,17 @@ class BytecodeReport:
     attributed_files: set = field(default_factory=set)
     attributed_file_count: int = 0
     java_files_seen: int = 0
+    # Method node ids whose full ancestor chain was walked here without hitting
+    # an unparsed in-repo class. For those, this pass's OVERRIDES answer is
+    # COMPLETE — including the negative answer "overrides nothing" — so
+    # pipeline._derive_overrides must not add its name+param_count guesses on
+    # top. Methods absent from this set keep the heuristic, so partial bytecode
+    # coverage degrades gracefully instead of silently losing overrides.
+    authoritative_override_methods: set = field(default_factory=set)
+    # (subclass_method_id, ancestor_method_id) pairs already emitted here, so a
+    # truncated-chain method that still keeps the heuristic cannot end up with
+    # the same edge written twice at two different confidences.
+    emitted_override_pairs: set = field(default_factory=set)
 
     @property
     def file_coverage(self) -> float:
@@ -109,6 +127,9 @@ class BytecodeReport:
             "classes_in_repo": self.classes_in_repo,
             "call_edges": self.call_edges,
             "field_edges": self.field_edges,
+            "hierarchy_edges": self.hierarchy_edges,
+            "override_edges": self.override_edges,
+            "override_chains_truncated": self.override_chains_truncated,
             "external_edges": self.external_edges,
             "external_nodes": self.external_nodes,
             "synthesized_nodes": self.synthesized_nodes,
@@ -179,6 +200,16 @@ def discover_class_sources(repo_root: str) -> list[str]:
         elif art.kind == "archive":
             archives.append(abspath)
     return sorted(class_dirs) + sorted(archives)
+
+
+def _direct_ancestors(entry: tuple[str, list[str]] | None) -> list[str]:
+    """Superclass plus every directly-implemented interface, as binary names."""
+    if not entry:
+        return []
+    super_name, ifaces = entry
+    out = [super_name] if super_name else []
+    out.extend(ifaces)
+    return out
 
 
 def _synthesize_node(info: ClassInfo, method, repo: str, owner_class_id: str,
@@ -252,6 +283,20 @@ def resolve_java_bytecode(
     attributed: set[str] = set()
     external_ids: set[str] = set()
 
+    # Class hierarchy, accumulated during the single parse pass and emitted
+    # after it. EXTENDS/IMPLEMENTS could in principle be emitted inline — the
+    # class header names its own supertypes — but OVERRIDES needs the whole
+    # ancestor CHAIN, and class files arrive in directory order, so a class is
+    # routinely parsed before its own superclass. Neither can be finished until
+    # every header has been seen, so both wait.
+    #   binary class name -> (super_name, interfaces)
+    hierarchy: dict[str, tuple[str, list[str]]] = {}
+    #   binary class name -> that class's own Class node id
+    own_class_ids: dict[str, str] = {}
+    #   binary class name -> [(MethodInfo, method node id)] for override-capable
+    #   methods only, so the dict stays proportional to real declarations
+    declared_methods: dict[str, list] = {}
+
     for info in _iter_class_sources(roots):
         rep.classes_seen += 1
 
@@ -263,7 +308,13 @@ def resolve_java_bytecode(
         owner_fqn = source_fqn or binary_to_source_fqn(info.outer_name)
         if not owner_fqn:
             continue
-        owner_class_id = index.class_id(info.name) or index.class_id(info.outer_name)
+        # own_id is this class's OWN node; owner_class_id falls back to the
+        # enclosing class for anonymous classes, which have no node of their own.
+        # The hierarchy must only ever use own_id: attributing `Outer$1`'s
+        # supertype to `Outer` would claim the outer class extends whatever the
+        # callback implements, which is both wrong and load-bearing downstream.
+        own_id = index.class_id(info.name)
+        owner_class_id = own_id or index.class_id(info.outer_name)
         if not owner_class_id:
             continue
         rep.classes_in_repo += 1
@@ -271,6 +322,9 @@ def resolve_java_bytecode(
         if owner_file:
             attributed.add(owner_file)
             attributed.add(owner_file.replace("/", os.sep))
+        if own_id:
+            hierarchy[info.name] = (info.super_name, info.interfaces)
+            own_class_ids[info.name] = own_id
 
         for method in info.methods:
             if should_skip_method(method):
@@ -301,6 +355,12 @@ def resolve_java_bytecode(
                 caller_id = index.method_id(info.name, method.name, method.descriptor, stats)
                 if not caller_id:
                     continue
+
+            # Only real declarations on a real named class can override, so
+            # synthesized callers (lambda bodies, anonymous members, <clinit>)
+            # are excluded by the `own_id` guard as well as by can_override.
+            if own_id and can_override(method):
+                declared_methods.setdefault(info.name, []).append((method, caller_id))
 
             for inv in method.invocations:
                 if inv.opcode == "invokedynamic":
@@ -387,13 +447,13 @@ def resolve_java_bytecode(
     rep.match_stats = stats.as_dict()
     rep.attributed_files = attributed
     rep.attributed_file_count = len({p.replace(os.sep, "/") for p in attributed})
-    rep.seconds = time.monotonic() - t0
 
     if not rep.classes_in_repo:
         rep.reason = (
             f"parsed {rep.classes_seen} class(es) but none matched an extracted "
             f"source class — the compiled output does not correspond to this tree"
         )
+        rep.seconds = time.monotonic() - t0
         _log.warning("[bytecode] %s — Java stays on javac/heuristic", rep.reason)
         return [], [], rep
 
@@ -407,17 +467,130 @@ def resolve_java_bytecode(
             f"{stats.ambiguous_method} ambiguous) — class files look stale "
             f"relative to the source"
         )
+        rep.seconds = time.monotonic() - t0
         _log.warning("[bytecode] %s — Java stays on javac/heuristic", rep.reason)
         return [], [], rep
 
+    # Everything below runs ONLY on a pass that is going to be kept. The
+    # hierarchy/OVERRIDES emission must sit AFTER both guards, not before:
+    # authoritative_override_methods tells pipeline._derive_overrides to stop
+    # deriving those methods, so populating it on a pass whose edges are then
+    # discarded would suppress the heuristic and supply nothing in its place —
+    # silently leaving those methods with no OVERRIDES at all. Discarding the
+    # pass has to discard its claims too.
+
+    # ---- class hierarchy: EXTENDS / IMPLEMENTS -------------------------
+    # Straight out of the class header (JVMS 4.1 super_class / interfaces), so
+    # these are compiler facts rather than the name/scope/import guesses
+    # resolver.py makes for the same edge types. They matter well beyond their
+    # own count (HANDOFF measured only 8,320 EXTENDS + 1,138 IMPLEMENTS on the
+    # real repo): _derive_overrides walks exactly this hierarchy, so an error
+    # here does not stay local, it propagates into every OVERRIDES edge and from
+    # there into polymorphic dispatch.
+    #
+    # Emitted ADDITIVELY — the heuristic still resolves these ref types for the
+    # same files. That is deliberate for now: bytecode names the supertype by
+    # full binary name and looks it up by fqn, whereas the heuristic matches on
+    # simple name plus imports, so on any class whose extracted fqn is spelled
+    # differently than the binary name the heuristic can still find a target
+    # bytecode misses. Suppressing it would trade a known-small duplicate count
+    # for an unknown number of lost edges. Neo4j MERGE collapses the duplicates
+    # on (type, src, dst) anyway; revisit once the overlap is measured.
+    for binary, (super_name, ifaces) in hierarchy.items():
+        src_id = own_class_ids[binary]
+        targets = [("EXTENDS", super_name)] + [("IMPLEMENTS", i) for i in ifaces]
+        for etype, target in targets:
+            if not target:
+                continue
+            dst_id = index.class_id(target)
+            # No node for the target means it is outside the repo (extending
+            # HttpServlet, implementing Serializable). Not an error: the graph
+            # only holds in-repo targets, and the chain legitimately ends here.
+            if not dst_id or dst_id == src_id:
+                continue
+            key = (etype, src_id, dst_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append(Edge(
+                etype, src_id, dst_id,
+                Confidence.EXTRACTED.value, origin=Origin.EXTRACTED.value,
+                extractor=_EXTRACTOR, evidence_file=index.file_of(src_id),
+                strategy=_STRATEGY,
+            ))
+            rep.hierarchy_edges += 1
+
+    # ---- OVERRIDES: descriptor-exact, not name+arity -------------------
+    # pipeline._derive_overrides matches a method to an ancestor's on name +
+    # param_count, which cannot tell `foo(String)` from `foo(int)`. Bytecode has
+    # the erased descriptor, so the same question gets an exact answer here for
+    # the same cost. This is the accuracy payoff of the whole pass: OVERRIDES is
+    # what polymorphic dispatch fans out over, and what a consumer joins through
+    # at query time, so a false override becomes many false CALLS.
+    for binary, methods in declared_methods.items():
+        # Walk the ancestor chain once per class, breadth-unordered (a class has
+        # one superclass but any number of interfaces, and interfaces extend
+        # interfaces, so this is a DAG, not a list).
+        chain: list[str] = []
+        visited: set[str] = set()
+        complete = True
+        stack = _direct_ancestors(hierarchy.get(binary))
+        while stack:
+            anc = stack.pop()
+            if not anc or anc in visited:
+                continue
+            visited.add(anc)
+            chain.append(anc)
+            nxt = hierarchy.get(anc)
+            if nxt is None:
+                # Not parsed in this pass. If it has no node either, it is a
+                # third-party/JDK type and the chain genuinely ends — the answer
+                # stays complete. If it IS an in-repo class we simply did not
+                # parse, we cannot see its own ancestors, so the answer for this
+                # class is partial and the heuristic has to keep covering it.
+                if index.class_id(anc):
+                    complete = False
+                continue
+            stack.extend(_direct_ancestors(nxt))
+
+        for method, method_id in methods:
+            for anc in chain:
+                target = index.override_target(anc, method.name, method.descriptor)
+                if not target or target == method_id:
+                    continue
+                key = ("OVERRIDES", method_id, target)
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append(Edge(
+                    "OVERRIDES", method_id, target,
+                    Confidence.EXTRACTED.value, origin=Origin.EXTRACTED.value,
+                    extractor=_EXTRACTOR, evidence_file=index.file_of(method_id),
+                    evidence_line=method.start_line, strategy=_STRATEGY,
+                ))
+                rep.override_edges += 1
+                rep.emitted_override_pairs.add((method_id, target))
+            if complete:
+                rep.authoritative_override_methods.add(method_id)
+        if not complete:
+            rep.override_chains_truncated += 1
+
+    rep.seconds = time.monotonic() - t0
     rep.available = True
     _log.info(
-        "[bytecode] %s class(es) seen, %s in repo; %s CALLS + %s READS/WRITES, "
-        "%s synthesized node(s), %s external call(s); match rate %.1f%%, "
-        "file coverage %.1f%% in %.1fs",
+        "[bytecode] %s class(es) seen, %s in repo; %s CALLS + %s READS/WRITES "
+        "+ %s EXTENDS/IMPLEMENTS + %s OVERRIDES, %s synthesized node(s), "
+        "%s external call(s); match rate %.1f%%, file coverage %.1f%% in %.1fs",
         rep.classes_seen, rep.classes_in_repo, rep.call_edges, rep.field_edges,
+        rep.hierarchy_edges, rep.override_edges,
         rep.synthesized_nodes, rep.external_calls, 100 * rep.match_rate,
         100 * rep.file_coverage, rep.seconds,
+    )
+    _log.info(
+        "[bytecode] OVERRIDES authoritative for %s method(s) (heuristic "
+        "suppressed for those); %s class(es) had a truncated ancestor chain and "
+        "keep the name+arity heuristic",
+        len(rep.authoritative_override_methods), rep.override_chains_truncated,
     )
     if rep.synthesis_skipped_no_lines:
         _log.info(

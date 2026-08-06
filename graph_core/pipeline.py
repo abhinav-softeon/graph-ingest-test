@@ -22,6 +22,7 @@ from .config import checkpoint_root as get_checkpoint_root
 from .config import (
     bytecode_class_roots,
     bytecode_min_match_rate,
+    compiled_hotpath_status,
     external_all_calls,
     polymorphic_dispatch_enabled,
     extract_batch_size,
@@ -154,6 +155,79 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     stage_seconds: dict[str, float] = {}
     t_prev = t0
 
+    # ---- one formatting/logging point for ALL progress -------------------
+    # Every on_stage() site already carried real progress (done/total/
+    # current_file/language), but two things were wrong with how it surfaced:
+    #   * the UI did `f"{stage} — {detail}"`, i.e. printed the raw dict repr, so
+    #     "3,412/16,500 files (20.7%)" arrived looking like
+    #     "{'done': 3412, 'total': 16500, ...}".
+    #   * only _beat() logged. The ~10 graph_parsing progress calls did not, so a
+    #     terminal tailing a 16.5k-file extraction saw NOTHING between
+    #     "discover: N candidate files" and the next stage.
+    # Both are fixed here rather than at 17 call sites: the caller's callback is
+    # captured and `on_stage` is rebound to this wrapper, so every existing call
+    # gets formatted text, a peak-RSS reading, and a terminal line for free.
+    _raw_on_stage = on_stage
+    # Rate limit for high-frequency per-file progress only. Milestones are never
+    # throttled — losing one of those is losing the record that a step happened.
+    _PROGRESS_LOG_EVERY_S = 2.0
+    _last_progress_log = [0.0]
+
+    # _peak_rss_mb() builds a fresh psutil.Process() and reads /proc on every
+    # call. That was fine when only _beat() used it (~23 times per run), but the
+    # wrapper below runs on EVERY on_stage — including the unthrottled per-file
+    # extraction progress, i.e. once per source file. Sampling it at most once a
+    # second keeps the reading useful (RSS does not meaningfully change faster
+    # than that) without putting a syscall pair on the per-file path.
+    _peak_sample = [0.0, 0.0]   # [monotonic of last sample, last value]
+
+    def _peak_rss_cached() -> float:
+        now = time.monotonic()
+        if now - _peak_sample[0] >= 1.0:
+            _peak_sample[0] = now
+            _peak_sample[1] = _peak_rss_mb()
+        return _peak_sample[1]
+
+    def _format_progress(stage: str, d: dict) -> str:
+        parts = [stage]
+        if d.get("step"):
+            parts.append(str(d["step"]))
+        done, total = d.get("done"), d.get("total")
+        if isinstance(done, int) and isinstance(total, int) and total > 0:
+            parts.append(f"{done:,}/{total:,} ({100.0 * done / total:.1f}%)")
+        if d.get("current_file"):
+            cur = str(d["current_file"])
+            lang = d.get("language")
+            parts.append(f"{cur} [{lang}]" if lang else cur)
+        # Anything else the call site passed, so a new detail key shows up in
+        # both outputs automatically instead of being silently dropped.
+        for k, v in d.items():
+            if k in ("step", "done", "total", "current_file", "language",
+                     "text", "peak_rss_mb") or v is None or v == "":
+                continue
+            parts.append(f"{k}={v:,}" if isinstance(v, int) and not isinstance(v, bool)
+                         else f"{k}={v}")
+        # ASCII separator on purpose. A middle dot mojibakes to "?" on a Windows
+        # console (cp1252), and `docker compose logs` is read from one — so a
+        # prettier glyph here costs readability exactly where these lines are
+        # consumed most.
+        return " | ".join(parts)
+
+    def on_stage(stage: str, detail: dict | None = None) -> None:  # noqa: A001 - deliberate rebind
+        d = dict(detail or {})
+        peak = _peak_rss_cached()
+        text = _format_progress(stage, d)
+        d["text"] = text                      # what the UI renders verbatim
+        d["peak_rss_mb"] = round(peak, 1)
+        is_progress = isinstance(d.get("done"), int) and isinstance(d.get("total"), int)
+        now = time.monotonic()
+        if not is_progress or now - _last_progress_log[0] >= _PROGRESS_LOG_EVERY_S:
+            if is_progress:
+                _last_progress_log[0] = now
+            _log.info("[graph_ingest][repo=%s] %s (peak_rss=%.0fMB)", repo, text, peak)
+        if _raw_on_stage is not None:
+            _raw_on_stage(stage, d)
+
     def _beat(stage: str, step: str, **detail) -> None:
         """Heartbeat + log for a long-running step INSIDE a stage.
 
@@ -164,15 +238,23 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         pass — so on a large repo a perfectly healthy job looked dead and got
         requeued (then, having used its one requeue, abandoned with "skipping
         redispatch"). Every such step now beats, and logs, so both the watchdog
-        and a human tailing logs can see it is alive."""
-        _log.info("[graph_ingest][repo=%s] %s: %s (peak_rss=%.0fMB)", repo, stage, step, _peak_rss_mb())
-        if on_stage:
-            on_stage(stage, {"step": step, **detail})
+        and a human tailing logs can see it is alive.
+
+        Logging lives in the on_stage wrapper above now, so this no longer emits
+        its own line — one path, one format, and no double-logging of the same
+        step. It stays unthrottled because it carries no done/total."""
+        on_stage(stage, {"step": step, **detail})
 
     def _write_beat(stage: str, what: str):
-        """on_batch callback factory for store.write_nodes/write_edges."""
+        """on_batch callback factory for store.write_nodes/write_edges.
+
+        done/total are passed as real keys rather than baked into the step string
+        so the wrapper both formats them ("2,450,000/15,000,000 (16.3%)") and
+        rate-limits them. At a 5,000-row write batch a 15M-edge graph fires this
+        ~3,000 times, which as unthrottled milestone lines would bury every other
+        log line in the stage."""
         def _cb(written: int, total: int) -> None:
-            _beat(stage, f"{what} {written}/{total}")
+            _beat(stage, what, done=written, total=total)
         return _cb
 
     def _mark(label: str) -> None:
@@ -236,6 +318,28 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     # reassembly (which already loads every batch) so RefStream has an exact len
     # without an extra counting pass.
     stream_refs = spilling and is_streaming_ingest_enabled()
+    # Announce the memory/perf configuration that is ACTUALLY in effect, not what
+    # was requested. Both of the big levers fail silently when a prerequisite is
+    # missing, and both look identical to success in the output:
+    #   * GRAPH_STREAMING_INGEST does nothing without GRAPH_CHECKPOINT_ROOT (no
+    #     manifest -> spilling False -> stream_refs False), so the whole ref list
+    #     stays in RAM while the setting reads "true".
+    #   * the compiled hot path is a BUILD-time step, so an image built without
+    #     it runs interpreted with no error anywhere.
+    # One line at the top of every run makes both verifiable instead of assumed.
+    try:
+        _hot = compiled_hotpath_status()
+    except Exception:  # noqa: BLE001 - diagnostics must never break a build
+        _hot = {}
+    _log.info(
+        "[graph_ingest][repo=%s] config in effect: spilling=%s stream_refs=%s "
+        "(requested=%s) checkpoint_root=%s | compiled: resolver=%s pipeline=%s | "
+        "extract_workers=%s batch_size=%s",
+        repo, spilling, stream_refs, is_streaming_ingest_enabled(),
+        ckpt_root or "(off)",
+        _hot.get("resolver"), _hot.get("pipeline"),
+        worker_count, batch_size,
+    )
     # Node early-write + bulky-field-drop: unconditional (MEMORY_ARCHITECTURE_
     # PLAN.md item #1). Persisting extracted nodes to Neo4j immediately, then
     # dropping fields nothing downstream ever reads again, has no structural
@@ -519,7 +623,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     if on_stage:
         on_stage("graph_parsing", {
             "done": total_files, "total": total_files,
-            "current_file": "(final merge — deduping across batches)", "language": "",
+            "current_file": "(final merge - deduping across batches)", "language": "",
         })
     _t_merge = time.time()
     final_merged = merge_bundles([CanonicalBundle(nodes=all_nodes, edges=all_edges, refs=all_refs)])
@@ -934,16 +1038,39 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         # CALLS merged above — they bypass the resolve sink (they never went
         # through resolve) so this is where they land.
         pending = [e for e in all_edges if isinstance(e, Edge)]
+        n_pending = len(pending)
         if pending:
-            _beat("deriving", f"writing {len(pending)} unwritten edge(s)")
+            _beat("deriving", f"writing {n_pending} unwritten edge(s)")
             store.write_edges(pending, on_batch=_write_beat("deriving", "edges written"))
-        all_edges = [e.to_slim() if isinstance(e, Edge) else e for e in all_edges]
+        # Drop the write list BEFORE converting below. It holds a reference to
+        # every full Edge object, which would keep them all alive through the
+        # conversion and defeat the incremental release the in-place loop exists
+        # for.
+        del pending
+        # Convert IN PLACE, not via a list comprehension.
+        #
+        # This replaced `all_edges = [e.to_slim() ... for e in all_edges]`, which
+        # was the single largest memory event in the stage: it built a second
+        # ~15M-element list while the first was still alive, AND kept every full
+        # Edge object alive until the comprehension finished — so the peak held
+        # both representations of the ENTIRE edge set simultaneously. That is what
+        # took the peak from resolve's 5561 MB to derive's 7424 MB
+        # (runs/b29bc9a9.json). Mutating the existing list means each Edge's
+        # refcount hits zero as soon as its SlimEdge replaces it, so the two
+        # representations overlap by one element instead of by 15 million.
+        #
+        # Same list object, same order, same resulting contents — nothing
+        # downstream can tell the difference except by watching RSS.
+        for _i in range(len(all_edges)):
+            _e = all_edges[_i]
+            if isinstance(_e, Edge):
+                all_edges[_i] = _e.to_slim()
         new_edges = []
         _log.info(
             "[graph_ingest][repo=%s] streaming writer: wrote %s previously-unwritten "
             "edge(s) (javac CALLS, if any); all %s pre-derive edge(s) now durable "
             "in Neo4j and slim in RAM",
-            repo, len(pending), len(all_edges),
+            repo, n_pending, len(all_edges),
         )
 
     def _add_edges(new: list[Edge]) -> None:
@@ -964,12 +1091,41 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     _beat("deriving", "building shared node/parent index")
     shared_by_id: dict[str, Node] = {n.id: n for n in all_nodes}
     shared_parent_of: dict[str, str] = {}
+    # Built in the SAME traversal as shared_parent_of. Previously this loop
+    # scanned every edge for CONTAINS and then _derive_overrides scanned every
+    # edge again for EXTENDS/IMPLEMENTS — two full passes over a 15M-edge list in
+    # the stage that is already the most expensive one (419s, 44% of ingest wall
+    # time per runs/b29bc9a9.json). One pass produces both.
+    shared_supers: dict[str, list[str]] = defaultdict(list)
     for e in all_edges:
-        if e.type == "CONTAINS":
+        etype = e.type
+        if etype == "CONTAINS":
             shared_parent_of[e.dst] = e.src
+        elif etype in ("EXTENDS", "IMPLEMENTS"):
+            # Same Class-to-Class guard _derive_overrides applied itself, kept
+            # here so its behavior is identical whether or not supers is passed.
+            s, d = shared_by_id.get(e.src), shared_by_id.get(e.dst)
+            if s is not None and d is not None and s.label == "Class" and d.label == "Class":
+                shared_supers[e.src].append(e.dst)
 
     _beat("deriving", "overrides from class hierarchy")
-    override_edges = _derive_overrides(all_nodes, all_edges, shared_by_id, shared_parent_of)
+    override_edges = _derive_overrides(
+        all_nodes, all_edges, shared_by_id, shared_parent_of, supers=shared_supers,
+        # Bytecode proved these by erased descriptor; this pass only has
+        # param_count (param_types is dropped by the slim projection), so
+        # re-deriving them could only add false pairs. See _derive_overrides.
+        skip_methods=bytecode_report.authoritative_override_methods,
+        skip_pairs=bytecode_report.emitted_override_pairs,
+    )
+    # Those two sets exist only to hand authority from the bytecode pass to this
+    # one, which has now run. They are one entry per override-capable method
+    # (hundreds of thousands of 16-char ids on a repo this size) plus one per
+    # emitted pair, and BytecodeReport is returned inside IndexResult — so
+    # without this they stay resident through the derive/write memory peak and
+    # then outlive the run itself, for nothing. summary() already excludes them,
+    # so no reporting depends on them either.
+    bytecode_report.authoritative_override_methods = set()
+    bytecode_report.emitted_override_pairs = set()
     # OVERRIDES is derived from EXTENDS/IMPLEMENTS + method name/arity, which the
     # heuristic resolves accurately (unlike CALLS) — javac replaces call binding
     # only, so these are kept for every language. The SCIP path used to drop them
@@ -1117,6 +1273,9 @@ def _derive_overrides(
     nodes: list[Node], edges: list[Edge],
     by_id: dict[str, Node] | None = None,
     parent_of: dict[str, str] | None = None,
+    skip_methods: set[str] | None = None,
+    skip_pairs: set[tuple[str, str]] | None = None,
+    supers: dict[str, list[str]] | None = None,
 ) -> list[Edge]:
     """OVERRIDES from the resolved class hierarchy: a method overrides an
     ancestor method of the same name + arity (Java extends/implements, Python
@@ -1126,20 +1285,48 @@ def _derive_overrides(
     parent map, built once by index_repo's derive sequence and passed in
     instead of this function rebuilding an identical O(nodes)/O(edges) index
     from scratch. Falls back to building them locally when not provided (e.g.
-    the low-RAM streaming derive path, which doesn't share this index)."""
+    the low-RAM streaming derive path, which doesn't share this index).
+
+    ``skip_methods``: method node ids the bytecode pass already answered
+    definitively (BytecodeReport.authoritative_override_methods) — it walked
+    their entire ancestor chain and compared erased descriptors, so its answer
+    is complete INCLUDING the negative one. This test cannot tell `foo(String)`
+    from `foo(int)` because param_types is dropped by the slim projection long
+    before derive runs, leaving only param_count; re-deriving those methods here
+    could only add false pairs to an exact result, and a false OVERRIDES fans out
+    into false polymorphic CALLS. Methods absent from the set still get resolved
+    here, so partial bytecode coverage degrades gracefully.
+
+    ``skip_pairs``: (src, dst) pairs bytecode already emitted. Only reachable for
+    methods whose chain was truncated (so they are NOT in ``skip_methods`` but
+    did get some edges): without this the same edge is written twice, and MERGE's
+    last-write-wins would downgrade a bytecode EXTRACTED edge to INFERRED.
+
+    ``supers``: precomputed class -> [supertype ids], built by index_repo in the
+    same traversal that builds ``parent_of``. Passing it in avoids a SECOND full
+    pass over the edge list here, which on a 15M-edge graph is pure duplicated
+    work in the most expensive stage. Built locally when not provided."""
+    _skip_methods = skip_methods or frozenset()
+    _skip_pairs = skip_pairs or frozenset()
     if by_id is None:
         by_id = {n.id: n for n in nodes}
     build_parent_of = parent_of is None
     if build_parent_of:
         parent_of = {}
-    supers: dict[str, list[str]] = defaultdict(list)
-    for e in edges:
-        if build_parent_of and e.type == "CONTAINS":
-            parent_of[e.dst] = e.src
-        elif e.type in ("EXTENDS", "IMPLEMENTS"):
-            s, d = by_id.get(e.src), by_id.get(e.dst)
-            if s and d and s.label == "Class" and d.label == "Class":
-                supers[e.src].append(e.dst)
+    build_supers = supers is None
+    if build_supers:
+        supers = defaultdict(list)
+    # Skipped entirely when the caller supplied both indices — that is the whole
+    # point of accepting them. The loop still runs when either is missing, so the
+    # standalone/low-RAM callers behave exactly as before.
+    if build_parent_of or build_supers:
+        for e in edges:
+            if build_parent_of and e.type == "CONTAINS":
+                parent_of[e.dst] = e.src
+            elif build_supers and e.type in ("EXTENDS", "IMPLEMENTS"):
+                s, d = by_id.get(e.src), by_id.get(e.dst)
+                if s and d and s.label == "Class" and d.label == "Class":
+                    supers[e.src].append(e.dst)
 
     methods_of: dict[str, dict[str, list[Node]]] = defaultdict(lambda: defaultdict(list))
     for n in nodes:
@@ -1152,6 +1339,8 @@ def _derive_overrides(
     seen: set[tuple[str, str]] = set()
     for n in nodes:
         if n.label != "Function" or n.kind != "method":
+            continue
+        if n.id in _skip_methods:
             continue
         cls = parent_of.get(n.id)
         if cls is None:
@@ -1167,6 +1356,8 @@ def _derive_overrides(
             for m in methods_of.get(anc, {}).get(n.name, []):
                 if m.id != n.id and m.param_count == n.param_count:
                     key = (n.id, m.id)
+                    if key in _skip_pairs:
+                        continue
                     if key not in seen:
                         seen.add(key)
                         out.append(Edge(

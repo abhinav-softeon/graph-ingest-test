@@ -1,17 +1,46 @@
 services:
   graph-ingest:
-    build: .
+    build:
+      context: .
+      args:
+        # Compile resolver.py + pipeline.py to native extensions instead of
+        # running them interpreted. Those two modules are resolve (40%) +
+        # derive (44%) = 84% of ingest wall time per runs/b29bc9a9.json, so
+        # this is the highest-leverage change available with zero source edits:
+        # same algorithm, same data structures, same memory layout. The plain
+        # .py files remain an automatic fallback if the compile step fails
+        # (CPython prefers a same-named extension module over the source).
+        ENABLE_COMPILED_HOTPATH: "true"
     image: graph-ingest-test
     ports:
       - "8501:8501"
 
-    # --- HARD 12 GB cap, NO swap (this is the whole point of the test) --------
+    # --- HARD 7 GB cap, NO swap (this is the whole point of the test) ---------
     # memswap_limit == mem_limit  ->  swap budget = 0, so the container CANNOT
-    # swap; if the build exceeds 12 GB it is OOM-killed instead of slowing down.
-    # NOTE: Docker Desktop's Linux VM must have MORE than 12 GB allocated
-    # (Settings -> Resources -> Memory >= 13-14 GB) or this limit can't be enforced.
-    mem_limit: 12g
-    memswap_limit: 12g
+    # swap; if the build exceeds the cap it is OOM-killed instead of slowing down.
+    #
+    # WHY 7g AND NOT MORE. The host has 16 GB, so ~/.wslconfig gives the WSL2 VM
+    # 8 GB (more than that starves Windows). The VM's own kernel + dockerd +
+    # containerd take roughly 0.5-1 GB of that, so ~7 GB is what a container can
+    # actually be guaranteed. A cap above the VM's real capacity is not a cap at
+    # all — Docker accepts it and the kernel kills the process anyway, just with
+    # a more confusing error.
+    #
+    # THIS DOES NOT FIT THE CURRENT PIPELINE YET, and that is a known state, not
+    # an oversight. The last full run peaked at 9140 MB (runs/b29bc9a9.json,
+    # `overall_peak_mb`) — about 2 GB over this cap. Two pending changes are what
+    # close that gap, both in the derive stage:
+    #   1. pipeline.py:940 rebuilds the entire ~15M-edge list into fresh SlimEdge
+    #      objects while the original list is still alive. That duplication is
+    #      what takes the peak from resolve's 5561 MB to derive's 7424 MB.
+    #   2. Dropping AMBIGUOUS CALLS at emission instead of allocating them:
+    #      4.78M edges measured at 0.1% precision, which cost memory in resolve,
+    #      derive AND write before being largely discarded downstream anyway.
+    # Until those land, expect an OOM kill here rather than a slow run. Raise this
+    # to 12g+ (and .wslconfig to match) only if you need a Phase-1 baseline on a
+    # machine with the RAM to spare.
+    mem_limit: 7g
+    memswap_limit: 7g
     mem_swappiness: 0
 
     environment:
@@ -26,7 +55,54 @@ services:
 
       GRAPH_WRITE_BATCH_SIZE: "5000"
       GRAPH_WRITE_WORKERS: "1"
-      GRAPH_STREAMING_INGEST: "false"
+
+      # Extraction pool size, set EXPLICITLY rather than left to default.
+      #
+      # extract_worker_count() falls back to os.cpu_count(), which means the VM's
+      # core count silently doubles as a memory dial: it is a ProcessPoolExecutor,
+      # so each worker is a separate process carrying its own tree-sitter parsers
+      # and its slice of the batch. Raising cores to 12 without pinning this would
+      # raise extraction's peak memory at the same time — against a hard 7 GiB cap
+      # with no swap, where an OOM-killed worker collapses the pool into a
+      # sequential fallback and makes the stage ~10x SLOWER, not faster.
+      #
+      # 10 of 12 cores' worth of extraction, leaving room for the main process.
+      # This is the dial to lower first if extraction OOMs; lowering cores is the
+      # wrong lever because it also throttles everything else in the VM.
+      GRAPH_EXTRACT_WORKERS: "10"
+
+      # Stream refs through resolve one disk batch at a time instead of holding
+      # the whole list in RAM. At ~150 B per RawRef and several million refs on a
+      # repo this size, that list is one of the last things left that scales with
+      # CALL SITES rather than declarations — order of ~750 MB, which is real
+      # money against a 7 GB cap.
+      #
+      # Requires GRAPH_CHECKPOINT_ROOT: without it there is no manifest, so
+      # `spilling` is False and this flag does nothing (pipeline.py:231,238).
+      #
+      # The documented conflict is already handled in code, not by us:
+      # resolve()'s checkpoint_root and edge_sink are mutually exclusive (resume
+      # cannot be made sound on the streaming path), and pipeline.py:775 resolves
+      # it with `resolve_ckpt = None if stream_refs else ckpt_root`. So the real
+      # trade is losing crash-RESUME of the resolve stage only — extraction stays
+      # resumable via its own batch checkpoint, and re-running resolve is cheap
+      # by comparison per that same comment.
+      GRAPH_STREAMING_INGEST: "true"
+      GRAPH_CHECKPOINT_ROOT: /data/edge_spill/ckpt
+
+      # Where the uploaded zip is unpacked, and every other tempfile.
+      #
+      # upload_utils calls tempfile.mkdtemp() with no dir=, so without this it
+      # lands in /tmp — which is the container's OVERLAYFS, not a volume. Writing
+      # and then re-reading ~16.5k small files through overlay's copy-up path is
+      # markedly slower than ext4, and the extraction stage reads every one of
+      # them back. tempfile honours TMPDIR, so pointing it at a named volume
+      # needs no code change.
+      #
+      # A named volume, deliberately NOT tmpfs: tmpfs would be fastest but is
+      # RAM-backed, and this container is on a hard 7 GiB cap it is already
+      # over — trading disk speed for OOM risk is the wrong way round here.
+      TMPDIR: /data/unzip
       GRAPH_SCIP_ENABLED: "false"
       GRAPH_LOG_LEVEL: "INFO"
 
@@ -38,9 +114,11 @@ services:
     volumes:
       - edge_spill:/data/edge_spill    # fast named volume for the disk spill
       - extract_cache:/app/.cache      # persist extraction cache across runs
+      - unzip_tmp:/data/unzip          # TMPDIR: unzip target on ext4, not overlayfs
       - ./_docker_input:/data/input    # drop your source .zip here (host side)
       - ./runs:/app/runs               # run reports land on the host
 
 volumes:
   edge_spill:
   extract_cache:
+  unzip_tmp:

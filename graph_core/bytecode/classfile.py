@@ -261,6 +261,12 @@ class MethodInfo:
         return bool(self.access_flags & ACC_ABSTRACT)
 
     @property
+    def is_private(self) -> bool:
+        """Private methods are invisible to subclasses, so they can never be
+        overridden however exactly the signatures line up."""
+        return bool(self.access_flags & ACC_PRIVATE)
+
+    @property
     def is_synthetic(self) -> bool:
         return bool(self.access_flags & ACC_SYNTHETIC)
 
