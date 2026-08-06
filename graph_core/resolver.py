@@ -689,6 +689,11 @@ def resolve(
     # cheapest possible place to get the tier breakdown that tells you whether
     # the ancestor fallback (`*_inherited`) and bytecode tiers actually fired.
     strategy_counts: dict[str, int] = defaultdict(int)
+    # Which ref types the emit() cap actually cost an edge. Separate from
+    # cap_dropped_emit's total because "N sites dropped" is unactionable without
+    # knowing whether N is CALLS (real recall loss) or EXTENDS/INSTANTIATES (the
+    # bare-name type tier, far cheaper to lose).
+    cap_dropped_by_type: dict[str, int] = defaultdict(int)
 
     extra_nodes: list[Node] = []
     annotation_ids: dict[str, str] = {}
@@ -775,6 +780,15 @@ def resolve(
                     and len(wanted) > _name_cap):
                 cov.unresolved += 1
                 stats_counters["cap_dropped_emit"] += 1
+                # Broken out per ref type because the cost is NOT uniform across
+                # them, and the aggregate hides that. This site drops the real
+                # edge of whatever type the ref is, so a CALLS drop is a genuine
+                # recall loss — unlike the unknown_recv site below, whose edges
+                # are REFERENCES and would be filtered by DROPPED_EDGE_TYPES at
+                # write time regardless. READS/WRITES never appear here at all:
+                # their strategies are same_scope/same_file_global, neither of
+                # which starts with `name`.
+                cap_dropped_by_type[ref.type] += 1
                 return
             for c in wanted:
                 out_edges.append(
@@ -1224,6 +1238,18 @@ def resolve(
         stats_counters["cap_dropped_emit"],
         stats_counters["cap_dropped_unknown_recv"],
     )
+    # The unknown-receiver figure above is NOT a graph loss: that branch emits
+    # REFERENCES, which store.write_edges filters via DROPPED_EDGE_TYPES on every
+    # run. Only the bare-name figure costs real edges, so spell out where.
+    if cap_dropped_by_type:
+        _log.info(
+            "[resolve][repo=%s] ambiguity cap: bare-name drops by ref type %s "
+            "(these cost real edges); the %s unknown-receiver drop(s) cost none "
+            "— those edges are REFERENCES, dropped at write regardless",
+            repo,
+            dict(sorted(cap_dropped_by_type.items(), key=lambda kv: -kv[1])),
+            stats_counters["cap_dropped_unknown_recv"],
+        )
 
     return extra_nodes, out_edges, coverage
 

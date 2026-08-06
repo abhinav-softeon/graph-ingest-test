@@ -1,9 +1,18 @@
 """Deterministic graph validation helpers (M7 baseline)."""
 from __future__ import annotations
 
-from collections import defaultdict
+import logging
+from collections import Counter, defaultdict
 
 from .models import Node
+
+_log = logging.getLogger(__name__)
+
+# How many distinct colliding ids to name in the log / error string. A collision
+# is usually one systematic cause repeated thousands of times (the same class
+# reachable at two paths), so a handful of examples identifies it; dumping all of
+# them would bury the rest of the report.
+_DUP_SAMPLE = 20
 
 
 REQUIRED_RELATIONS = {
@@ -80,7 +89,46 @@ def validate_graph(nodes: list[Node], edge_stats: EdgeStats) -> dict:
     node_id_set = set(node_ids)
 
     if len(node_ids) != len(node_id_set):
-        errors.append("duplicate node ids detected")
+        # An id is sha1(repo + kind + fqn) — deliberately path-independent so an
+        # incremental re-index patches a moved file in place (see ids.make_id).
+        # The consequence is that two source files declaring the SAME package +
+        # type collide, and the bare count cannot tell that (benign: one type
+        # reachable at two paths, e.g. sources also copied under WEB-INF/classes)
+        # apart from a genuine fqn collision between two DIFFERENT types. Only
+        # the fqn and the owning files distinguish them, so report both.
+        #
+        # Neo4j MERGE collapses the duplicates on write, which is why a run with
+        # this error still produces a queryable graph. The damage is upstream:
+        # the duplicates ride through resolve/derive in RAM, and anything keyed
+        # by node id (a per-function CFG/DFG especially) silently merges two
+        # distinct bodies into one.
+        #
+        # Counted only when a duplicate is already known to exist — the Counter
+        # is a third ~len(nodes) structure and the healthy path must not pay for
+        # it at the pre-write memory peak.
+        dupes = {i: c for i, c in Counter(node_ids).items() if c > 1}
+        by_id: dict[str, list[Node]] = defaultdict(list)
+        for n in nodes:
+            if n.id in dupes:
+                by_id[n.id].append(n)
+        extra = len(node_ids) - len(node_id_set)
+        errors.append(
+            f"duplicate node ids detected: {len(dupes)} id(s), "
+            f"{extra} redundant node(s)"
+        )
+        for nid, count in sorted(dupes.items(), key=lambda kv: -kv[1])[:_DUP_SAMPLE]:
+            group = by_id[nid]
+            first = group[0]
+            _log.error(
+                "[validate] dup id %s x%s label=%s kind=%s fqn=%s files=%s",
+                nid, count, first.label, first.kind or "-", first.fqn or "-",
+                sorted({n.file for n in group if n.file}) or ["-"],
+            )
+        if len(dupes) > _DUP_SAMPLE:
+            _log.error(
+                "[validate] ... and %s more duplicated id(s) not listed",
+                len(dupes) - _DUP_SAMPLE,
+            )
 
     dangling = edge_stats.dangling
     if dangling:

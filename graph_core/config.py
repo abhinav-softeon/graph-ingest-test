@@ -100,6 +100,30 @@ def name_match_max_candidates() -> int:
     return v if v >= 0 else 5
 
 
+def javac_skip_above_bytecode_coverage() -> float:
+    """Skip the javac pass when bytecode already covered this fraction of Java.
+
+    Both tiers answer the same question — javac RE-DERIVES by recompiling what a
+    class file already records — and pipeline already drops every javac edge whose
+    file bytecode covered. So at high bytecode coverage javac's whole output is
+    discarded after being paid for: one measured run compiled for 153 s, produced
+    338,010 edges, and landed exactly 0 of them in the graph.
+
+    This gates the WORK, not the edges. The files above the threshold that
+    bytecode missed fall back to the heuristic resolver rather than javac, so the
+    trade is a small precision loss on that remainder against the whole javac
+    stage. Default 0.98: at the measured 16,673/16,677 (99.98%) it fires and 4
+    files change tier.
+
+    Set to 1.0 to skip only on total coverage, or 0 to disable the skip and
+    always run javac."""
+    try:
+        v = float(os.environ.get("GRAPH_JAVAC_SKIP_ABOVE_BYTECODE_COVERAGE", "0.98"))
+    except ValueError:
+        return 0.98
+    return min(max(v, 0.0), 1.0)
+
+
 def polymorphic_dispatch_enabled() -> bool:
     """Materialize caller -> every-override CALLS edges in the database.
 

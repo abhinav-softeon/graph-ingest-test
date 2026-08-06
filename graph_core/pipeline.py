@@ -30,6 +30,7 @@ from .config import (
     get_cache_io_workers,
     is_streaming_ingest_enabled,
     javac_batch_size,
+    javac_skip_above_bytecode_coverage,
     javac_timeout_seconds,
 )
 from .bytecode_resolver import BytecodeReport, discover_class_sources, resolve_java_bytecode
@@ -737,7 +738,28 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     javac_report = JavacReport()
     javac_owns_java = False
     javac_edges: list[Edge] = []
-    if javac and has_java:
+    # Gate on bytecode's REALIZED coverage, not on "were class files present" —
+    # a bytecode pass can be rejected wholesale by its own min_match_rate guard
+    # (available=False, bytecode_owns empty), and javac is exactly the fallback
+    # for that case. Reading the coverage covers both conditions at once.
+    _javac_skip_at = javac_skip_above_bytecode_coverage()
+    _bytecode_cov = bytecode_report.file_coverage if bytecode_report.available else 0.0
+    _skip_javac = bool(_javac_skip_at) and _bytecode_cov >= _javac_skip_at
+    if javac and has_java and _skip_javac:
+        _log.info(
+            "[graph_ingest][repo=%s] javac: skipped — bytecode already covers "
+            "%.2f%% of Java (%s/%s files, threshold %.2f%%). Every javac edge for "
+            "a bytecode-covered file is dropped below anyway; the %s uncovered "
+            "file(s) fall back to the heuristic resolver.",
+            repo, _bytecode_cov * 100,
+            bytecode_report.attributed_file_count, bytecode_report.java_files_seen,
+            _javac_skip_at * 100,
+            max(bytecode_report.java_files_seen - bytecode_report.attributed_file_count, 0),
+        )
+        javac_report.reason = (
+            f"skipped: bytecode coverage {_bytecode_cov:.4f} >= {_javac_skip_at}"
+        )
+    if javac and has_java and not _skip_javac:
         if on_stage:
             on_stage("javac", {})
         _beat("javac", "resolving Java calls with javac")

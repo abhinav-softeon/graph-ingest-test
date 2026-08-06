@@ -96,6 +96,15 @@ class BytecodeReport:
     attributed_files: set = field(default_factory=set)
     attributed_file_count: int = 0
     java_files_seen: int = 0
+    # Files whose class HEADER was read here, i.e. whose EXTENDS/IMPLEMENTS are
+    # compiler facts. Deliberately separate from attributed_files: that set is
+    # built from method/field matching, and a class can have a clean header while
+    # none of its members bind (or the reverse). Suppressing the heuristic's
+    # hierarchy refs on the wrong set would drop real edges, so the two are
+    # tracked independently. Same both-separator-spellings contract as
+    # attributed_files.
+    hierarchy_files: set = field(default_factory=set)
+    hierarchy_file_count: int = 0
     # Method node ids whose full ancestor chain was walked here without hitting
     # an unparsed in-repo class. For those, this pass's OVERRIDES answer is
     # COMPLETE — including the negative answer "overrides nothing" — so
@@ -138,6 +147,7 @@ class BytecodeReport:
             "match_rate": round(self.match_rate, 4),
             "file_coverage": round(self.file_coverage, 4),
             "attributed_file_count": self.attributed_file_count,
+            "hierarchy_file_count": self.hierarchy_file_count,
             "java_files_seen": self.java_files_seen,
             "seconds": round(self.seconds, 2),
             "match_stats": dict(self.match_stats),
@@ -496,8 +506,18 @@ def resolve_java_bytecode(
     # bytecode misses. Suppressing it would trade a known-small duplicate count
     # for an unknown number of lost edges. Neo4j MERGE collapses the duplicates
     # on (type, src, dst) anyway; revisit once the overlap is measured.
+    hierarchy_files: set[str] = set()
     for binary, (super_name, ifaces) in hierarchy.items():
         src_id = own_class_ids[binary]
+        # Recorded for every class whose header parsed, BEFORE the per-target
+        # filtering below: a class extending only out-of-repo types (HttpServlet,
+        # Serializable) emits no edge, but its hierarchy is still fully known —
+        # "no in-repo supertype" is a compiler fact, and the heuristic guessing
+        # one anyway is precisely the case worth suppressing.
+        _src_file = index.file_of(src_id)
+        if _src_file:
+            hierarchy_files.add(_src_file)
+            hierarchy_files.add(_src_file.replace("/", os.sep))
         targets = [("EXTENDS", super_name)] + [("IMPLEMENTS", i) for i in ifaces]
         for etype, target in targets:
             if not target:
@@ -519,6 +539,13 @@ def resolve_java_bytecode(
                 strategy=_STRATEGY,
             ))
             rep.hierarchy_edges += 1
+
+    # Set here, not up with attributed_files: that assignment runs before the
+    # stale-build guards, and this loop runs after them — a discarded pass must
+    # not publish a hierarchy claim (the same trap as the OVERRIDES handoff, see
+    # the guard note above).
+    rep.hierarchy_files = hierarchy_files
+    rep.hierarchy_file_count = len({p.replace(os.sep, "/") for p in hierarchy_files})
 
     # ---- OVERRIDES: descriptor-exact, not name+arity -------------------
     # pipeline._derive_overrides matches a method to an ancestor's on name +
@@ -591,6 +618,16 @@ def resolve_java_bytecode(
         "suppressed for those); %s class(es) had a truncated ancestor chain and "
         "keep the name+arity heuristic",
         len(rep.authoritative_override_methods), rep.override_chains_truncated,
+    )
+    # The suppression decision for EXTENDS/IMPLEMENTS turns on how much of the
+    # heuristic's hierarchy output these files duplicate. hierarchy_edges alone
+    # cannot answer it (a MERGE-collapse count conflates tier duplication with
+    # duplicate source files producing the same triple twice), so report the file
+    # basis here and let resolve report its side against the same set.
+    _log.info(
+        "[bytecode] class hierarchy read for %s file(s) of %s Java file(s) seen "
+        "— %s EXTENDS/IMPLEMENTS are compiler facts for those files",
+        rep.hierarchy_file_count, rep.java_files_seen, rep.hierarchy_edges,
     )
     if rep.synthesis_skipped_no_lines:
         _log.info(
