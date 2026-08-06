@@ -503,7 +503,6 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
                     repo, pool_broken_exc, len(stragglers),
                 )
                 for f in stragglers:
-                    _log.info("[graph_ingest][repo=%s] sequential fallback: extracting %s", repo, f.relpath)
                     nodes, edges, refs = _extract_one(f, repo)
                     bundle = from_extractor(nodes, edges, refs)
                     batch_bundles.append(bundle)

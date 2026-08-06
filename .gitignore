@@ -5,7 +5,9 @@
 
 /.pytest_cache/
 
-/__pycache__/
+__pycache__/
+**/__pycache__/
+*.py[cod]
 
 graph.joblib
 *.joblib
@@ -16,5 +18,12 @@ graph.joblib
 # environment (e.g. inside Docker), never committed.
 *.so
 *.pyd
-graph_core/*.c
-/build/
+build/
+
+# Runtime logs/reports generated during local runs
+
+runs/index.jsonl
+
+# Local ad-hoc analysis/audit outputs
+run_audit.py
+ACCURACY_AUDIT.md

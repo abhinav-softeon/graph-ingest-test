@@ -1,0 +1,167 @@
+{
+  "run_id": "5d22b5b9",
+  "project": "experiment",
+  "started_at": 1786009572.5347,
+  "finished_at": 1786011638.179924,
+  "total_duration_s": 2065.645,
+  "overall_peak_mb": 6347.1,
+  "error": null,
+  "config": {
+    "project": "experiment",
+    "repo_tag": "experiment",
+    "javac": true,
+    "bytecode": true,
+    "javac_timeout_s": 3600.0,
+    "extract_batch_size": 2000,
+    "extract_workers": 10,
+    "checkpoint_root": "./.graph_checkpoints",
+    "streaming_ingest": true,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 16
+  },
+  "result_counts": {
+    "files": 24586,
+    "nodes": 739538,
+    "edges": 1859451,
+    "stage_seconds": {
+      "discovering": 0.0,
+      "graph_parsing": 1443.126,
+      "bytecode": 48.108,
+      "javac": 135.364,
+      "resolving": 401.009,
+      "deriving": 24.565,
+      "writing_graph": 4.008
+    },
+    "validation": {
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "stats": {
+        "nodes": 739538,
+        "edges": 1859451,
+        "functions": 343001,
+        "dangling_edges": 0,
+        "invalid_ranges": 0,
+        "relations": {
+          "CONTAINS": 739852,
+          "IMPLEMENTS": 1139,
+          "OF_TYPE": 7266,
+          "WRITES": 52563,
+          "INSTANTIATES": 78474,
+          "AUTOWIRED": 1404,
+          "EXTENDS": 8324,
+          "READS": 4616,
+          "ANNOTATED_WITH": 3546,
+          "CALLS": 856546,
+          "REFERENCES": 78687,
+          "CALLS_EXTERNAL": 23,
+          "OVERRIDES": 27011
+        }
+      }
+    },
+    "bytecode": {
+      "available": true,
+      "reason": "",
+      "class_sources": 242,
+      "classes_seen": 85403,
+      "classes_in_repo": 32,
+      "call_edges": 243,
+      "field_edges": 484,
+      "hierarchy_edges": 2,
+      "override_edges": 2,
+      "override_chains_truncated": 0,
+      "external_edges": 2,
+      "external_nodes": 2,
+      "synthesized_nodes": 10,
+      "synthesis_skipped_no_lines": 0,
+      "external_calls": 1538,
+      "match_rate": 0.8771,
+      "file_coverage": 0.0019,
+      "attributed_file_count": 31,
+      "java_files_seen": 16222,
+      "seconds": 46.64,
+      "match_stats": {
+        "matched_methods": 257,
+        "matched_fields": 484,
+        "unmatched_class": 0,
+        "unmatched_method": 32,
+        "unmatched_field": 89,
+        "implicit_default_ctor": 13,
+        "ambiguous_method": 4,
+        "anonymous_class": 0,
+        "lambda_body": 0,
+        "class_initializer": 8,
+        "skipped_synthetic": 0
+      }
+    },
+    "javac": {
+      "available": true,
+      "reason": "",
+      "edges": 336128,
+      "file_coverage": 1.0,
+      "attribution_rate": 0.9146,
+      "attributed_file_count": 16222,
+      "seconds": 135.31
+    }
+  },
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 5.004,
+      "mem_start_mb": 1803.0,
+      "mem_end_mb": 1965.2,
+      "mem_peak_mb": 1965.2
+    },
+    {
+      "name": "discovering",
+      "duration_s": 0.0,
+      "mem_start_mb": 2502.6,
+      "mem_end_mb": 2502.6,
+      "mem_peak_mb": 2502.6
+    },
+    {
+      "name": "graph_parsing",
+      "duration_s": 1442.083,
+      "mem_start_mb": 2502.6,
+      "mem_end_mb": 4313.8,
+      "mem_peak_mb": 4518.5
+    },
+    {
+      "name": "resolving",
+      "duration_s": 580.686,
+      "mem_start_mb": 4310.3,
+      "mem_end_mb": 3597.0,
+      "mem_peak_mb": 4823.2
+    },
+    {
+      "name": "bytecode",
+      "duration_s": 1.227,
+      "mem_start_mb": 4310.3,
+      "mem_end_mb": 4377.2,
+      "mem_peak_mb": 4377.2
+    },
+    {
+      "name": "javac",
+      "duration_s": 0.0,
+      "mem_start_mb": 3643.2,
+      "mem_end_mb": 3643.2,
+      "mem_peak_mb": 3643.2
+    },
+    {
+      "name": "deriving",
+      "duration_s": 24.452,
+      "mem_start_mb": 4026.3,
+      "mem_end_mb": 4040.8,
+      "mem_peak_mb": 4040.8
+    },
+    {
+      "name": "writing_graph",
+      "duration_s": 3.91,
+      "mem_start_mb": 4040.8,
+      "mem_end_mb": 4044.1,
+      "mem_peak_mb": 4045.1
+    }
+  ]
+}

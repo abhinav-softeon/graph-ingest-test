@@ -22,7 +22,35 @@ from setuptools import setup
 
 setup(
     ext_modules=cythonize(
-        ["graph_core/resolver.py", "graph_core/pipeline.py"],
+        [
+            # Core hot paths (original)
+            "graph_core/resolver.py",
+            "graph_core/pipeline.py",
+            # Extractors
+            "graph_core/extractors/common.py",
+            "graph_core/extractors/java.py",
+            "graph_core/extractors/javascript.py",
+            "graph_core/extractors/jsp.py",
+            "graph_core/extractors/python.py",
+            "graph_core/extractors/sql.py",
+            # Bytecode
+            "graph_core/bytecode/classfile.py",
+            "graph_core/bytecode/matcher.py",
+            "graph_core/bytecode_resolver.py",
+            # Graph core support
+            "graph_core/discovery.py",
+            "graph_core/ids.py",
+            "graph_core/models.py",
+            "graph_core/store.py",
+            "graph_core/external_api.py",
+            "graph_core/extract_cache.py",
+            "graph_core/canonical_ir.py",
+            "graph_core/checkpoint.py",
+            # Ingest
+            "ingest/build.py",
+            "ingest/indexing.py",
+            "ingest/upload_utils.py",
+        ],
         compiler_directives={
             "language_level": "3",
             # Both files use PEP 526 variable annotations (`x: dict[...] = ...`)

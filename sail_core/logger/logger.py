@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 _CONFIGURED = False
 
@@ -17,11 +18,19 @@ def _configure_once() -> None:
     global _CONFIGURED
     if _CONFIGURED:
         return
-    level = os.environ.get("GRAPH_LOG_LEVEL", "INFO").upper()
-    logging.basicConfig(
-        level=getattr(logging, level, logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    level = getattr(logging, os.environ.get("GRAPH_LOG_LEVEL", "INFO").upper(), logging.INFO)
+    root = logging.getLogger()
+    # Always add a stdout handler explicitly. logging.basicConfig() is a no-op
+    # if ANY handler already exists on the root logger — which is the case when
+    # log_stream.install() runs first (e.g. from ui/app.py). That caused stdout
+    # to get no records while the UI ring buffer got them all.
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        fmt="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    ))
+    root.addHandler(handler)
+    if root.level == logging.NOTSET or root.level > level:
+        root.setLevel(level)
     _CONFIGURED = True
 
 
