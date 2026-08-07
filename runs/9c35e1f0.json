@@ -1,0 +1,69 @@
+{
+  "run_id": "9c35e1f0",
+  "project": "aramex",
+  "started_at": 1786091782.977752,
+  "finished_at": 1786093384.024161,
+  "total_duration_s": 1601.046,
+  "overall_peak_mb": 5155.7,
+  "error": "{neo4j_code: Neo.TransientError.Transaction.DeadlockDetected} {message: ForsetiClient[transactionId=1354, clientId=7] can't acquire EXCLUSIVE NODE_RELATIONSHIP_GROUP_DELETE(1201237) because it would form this deadlock wait cycle:\nNODE_RELATIONSHIP_GROUP_DELETE(1201237)-[EXCLUSIVE_OWNER]->(tx:1355)-[WAITING_FOR_EXCLUSIVE]->(NODE_RELATIONSHIP_GROUP_DELETE(1200965))-[EXCLUSIVE_OWNER]->(tx:1354)-[WAITING_FOR_EXCLUSIVE]->(NODE_RELATIONSHIP_GROUP_DELETE(1201237))} {gql_status: 50N05} {gql_status_description: error: general processing exception - deadlock detected. Deadlock detected while trying to acquire locks. See log for more details.}",
+  "config": {
+    "project": "aramex",
+    "repo_tag": "aramex",
+    "javac": true,
+    "bytecode": true,
+    "javac_timeout_s": 3600.0,
+    "extract_batch_size": 4000,
+    "extract_workers": 10,
+    "checkpoint_root": "./.graph_checkpoints",
+    "streaming_ingest": true,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 16
+  },
+  "result_counts": {},
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 9.183,
+      "mem_start_mb": 2882.5,
+      "mem_end_mb": 3057.2,
+      "mem_peak_mb": 3057.2
+    },
+    {
+      "name": "discovering",
+      "duration_s": 0.0,
+      "mem_start_mb": 3529.1,
+      "mem_end_mb": 3529.1,
+      "mem_peak_mb": 3529.1
+    },
+    {
+      "name": "graph_parsing",
+      "duration_s": 876.942,
+      "mem_start_mb": 3529.1,
+      "mem_end_mb": 4342.2,
+      "mem_peak_mb": 4677.6
+    },
+    {
+      "name": "resolving",
+      "duration_s": 650.192,
+      "mem_start_mb": 4439.6,
+      "mem_end_mb": 3805.1,
+      "mem_peak_mb": 4569.8
+    },
+    {
+      "name": "bytecode",
+      "duration_s": 2.151,
+      "mem_start_mb": 4439.6,
+      "mem_end_mb": 4449.2,
+      "mem_peak_mb": 4449.2
+    },
+    {
+      "name": "deriving",
+      "duration_s": 48.477,
+      "mem_start_mb": 4359.8,
+      "mem_end_mb": 4131.5,
+      "mem_peak_mb": 4392.8
+    }
+  ]
+}

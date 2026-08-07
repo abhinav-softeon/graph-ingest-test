@@ -1,18 +1,18 @@
 {
-  "run_id": "46588b70",
-  "project": "experiment",
-  "started_at": 1786009554.684024,
-  "finished_at": 1786009560.38297,
-  "total_duration_s": 5.699,
-  "overall_peak_mb": 2354.7,
+  "run_id": "2d47ee73",
+  "project": "aramex",
+  "started_at": 1786091765.769987,
+  "finished_at": 1786091777.314053,
+  "total_duration_s": 11.544,
+  "overall_peak_mb": 3684.1,
   "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 42NFF} {gql_status_description: error: syntax error or access rule violation - permission/access denied. Access denied, see the security logs for details.}",
   "config": {
-    "project": "experiment",
-    "repo_tag": "experiment",
+    "project": "aramex",
+    "repo_tag": "aramex",
     "javac": true,
     "bytecode": true,
     "javac_timeout_s": 3600.0,
-    "extract_batch_size": 2000,
+    "extract_batch_size": 4000,
     "extract_workers": 10,
     "checkpoint_root": "./.graph_checkpoints",
     "streaming_ingest": true,
@@ -25,10 +25,10 @@
   "stages": [
     {
       "name": "unzipping",
-      "duration_s": 5.156,
-      "mem_start_mb": 1345.5,
-      "mem_end_mb": 2354.7,
-      "mem_peak_mb": 2354.7
+      "duration_s": 9.836,
+      "mem_start_mb": 2837.8,
+      "mem_end_mb": 3668.9,
+      "mem_peak_mb": 3684.1
     }
   ]
 }

@@ -18,39 +18,34 @@ import machinery prefers compiled extensions over source files with the same
 module name, so no other code needs to change.
 """
 from Cython.Build import cythonize
+from pathlib import Path
 from setuptools import setup
+
+
+def _cython_targets() -> list[str]:
+    """All eligible project modules to compile.
+
+    Keeps this build script maintenance-free: any new module under the core
+    runtime folders is picked up automatically without hand-editing this list.
+    Excludes package markers and tests.
+    """
+    roots = ("graph_core", "ingest", "instrumentation", "sail_core")
+    excluded_dirs = {"tests", "__pycache__"}
+    targets: list[str] = []
+
+    for root in roots:
+        for path in Path(root).rglob("*.py"):
+            if path.name == "__init__.py":
+                continue
+            if any(part in excluded_dirs for part in path.parts):
+                continue
+            targets.append(str(path).replace("\\", "/"))
+
+    return sorted(targets)
 
 setup(
     ext_modules=cythonize(
-        [
-            # Core hot paths (original)
-            "graph_core/resolver.py",
-            "graph_core/pipeline.py",
-            # Extractors
-            "graph_core/extractors/common.py",
-            "graph_core/extractors/java.py",
-            "graph_core/extractors/javascript.py",
-            "graph_core/extractors/jsp.py",
-            "graph_core/extractors/python.py",
-            "graph_core/extractors/sql.py",
-            # Bytecode
-            "graph_core/bytecode/classfile.py",
-            "graph_core/bytecode/matcher.py",
-            "graph_core/bytecode_resolver.py",
-            # Graph core support
-            "graph_core/discovery.py",
-            "graph_core/ids.py",
-            "graph_core/models.py",
-            "graph_core/store.py",
-            "graph_core/external_api.py",
-            "graph_core/extract_cache.py",
-            "graph_core/canonical_ir.py",
-            "graph_core/checkpoint.py",
-            # Ingest
-            "ingest/build.py",
-            "ingest/indexing.py",
-            "ingest/upload_utils.py",
-        ],
+        _cython_targets(),
         compiler_directives={
             "language_level": "3",
             # Both files use PEP 526 variable annotations (`x: dict[...] = ...`)

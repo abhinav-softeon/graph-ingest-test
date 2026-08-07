@@ -1,0 +1,62 @@
+{
+  "run_id": "bace7e37",
+  "project": "experiment",
+  "started_at": 1786085852.4943411,
+  "finished_at": 1786086415.682548,
+  "total_duration_s": 563.188,
+  "overall_peak_mb": 5565.0,
+  "error": "'Node' object has no attribute 'taint_categories'",
+  "config": {
+    "project": "experiment",
+    "repo_tag": "experiment",
+    "javac": true,
+    "bytecode": true,
+    "javac_timeout_s": 3600.0,
+    "extract_batch_size": 2000,
+    "extract_workers": 10,
+    "checkpoint_root": "./.graph_checkpoints",
+    "streaming_ingest": true,
+    "extract_cache_enabled": true,
+    "extract_cache_dir": "./.cache/graph_extract_cache",
+    "cache_io_workers": 16,
+    "zip_extract_workers": 16
+  },
+  "result_counts": {},
+  "stages": [
+    {
+      "name": "unzipping",
+      "duration_s": 4.683,
+      "mem_start_mb": 2051.0,
+      "mem_end_mb": 2651.2,
+      "mem_peak_mb": 3016.9
+    },
+    {
+      "name": "discovering",
+      "duration_s": 0.0,
+      "mem_start_mb": 3028.1,
+      "mem_end_mb": 3028.1,
+      "mem_peak_mb": 3028.1
+    },
+    {
+      "name": "graph_parsing",
+      "duration_s": 379.17,
+      "mem_start_mb": 3028.1,
+      "mem_end_mb": 4970.5,
+      "mem_peak_mb": 5019.1
+    },
+    {
+      "name": "resolving",
+      "duration_s": 172.6,
+      "mem_start_mb": 5042.6,
+      "mem_end_mb": 4697.7,
+      "mem_peak_mb": 5042.6
+    },
+    {
+      "name": "bytecode",
+      "duration_s": 0.862,
+      "mem_start_mb": 5042.6,
+      "mem_end_mb": 5042.7,
+      "mem_peak_mb": 5042.7
+    }
+  ]
+}

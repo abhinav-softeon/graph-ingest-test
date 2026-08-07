@@ -1541,12 +1541,19 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
         sites.clear()
         return
     marked = 0
+    stale_function_nodes = 0
     for n in nodes:
         nid = n.id
         k = kinds.get(nid)
         is_src = nid in sources
         s = sites.get(nid)
         if not (k or is_src or s):
+            continue
+        # Mixed object shapes can happen when old extract-cache/checkpoint
+        # bundles are deserialized after Node gained taint slots. Skip those
+        # objects instead of aborting the whole ingest.
+        if not (hasattr(n, "taint_categories") and hasattr(n, "taint_source") and hasattr(n, "taint_sites")):
+            stale_function_nodes += 1
             continue
         # Sorted so a re-ingest of unchanged source produces an identical
         # property value — an unstable list would make every node look changed.
@@ -1567,6 +1574,14 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
         repo, marked, len(kinds), len(sources),
         sum(len(v) for v in sites.values()),
     )
+    if stale_function_nodes:
+        _log.warning(
+            "[graph_ingest][repo=%s] taint marking skipped for %s function node(s) "
+            "loaded without taint slots (stale extract/checkpoint cache). "
+            "Clear caches before re-run: rm -rf .cache/graph_extract_cache .graph_checkpoints",
+            repo,
+            stale_function_nodes,
+        )
     # Consumed — drop before resolve/derive rather than carrying them through.
     kinds.clear()
     sources.clear()

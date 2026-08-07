@@ -1,10 +1,10 @@
 {
-  "run_id": "c1d0c433",
+  "run_id": "3f7f0b9d",
   "project": "experiment",
-  "started_at": 1786013957.552632,
-  "finished_at": 1786015679.374222,
-  "total_duration_s": 1721.822,
-  "overall_peak_mb": 6822.0,
+  "started_at": 1786020045.1871202,
+  "finished_at": 1786021389.3545952,
+  "total_duration_s": 1344.167,
+  "overall_peak_mb": 5190.1,
   "error": null,
   "config": {
     "project": "experiment",
@@ -12,7 +12,7 @@
     "javac": true,
     "bytecode": true,
     "javac_timeout_s": 3600.0,
-    "extract_batch_size": 2000,
+    "extract_batch_size": 4000,
     "extract_workers": 10,
     "checkpoint_root": "./.graph_checkpoints",
     "streaming_ingest": true,
@@ -27,17 +27,17 @@
     "edges": 2957520,
     "stage_seconds": {
       "discovering": 0.0,
-      "graph_parsing": 904.652,
-      "bytecode": 170.243,
-      "javac": 153.04,
-      "resolving": 379.456,
-      "deriving": 100.229,
-      "writing_graph": 2.546
+      "graph_parsing": 672.114,
+      "bytecode": 174.473,
+      "javac": 1.187,
+      "resolving": 408.927,
+      "deriving": 72.062,
+      "writing_graph": 4.074
     },
     "validation": {
       "ok": false,
       "errors": [
-        "duplicate node ids detected"
+        "duplicate node ids detected: 10 id(s), 10 redundant node(s)"
       ],
       "warnings": [],
       "stats": {
@@ -48,13 +48,13 @@
         "invalid_ranges": 0,
         "relations": {
           "CONTAINS": 759768,
-          "OF_TYPE": 7487,
           "IMPLEMENTS": 2323,
+          "OF_TYPE": 7487,
           "WRITES": 409234,
           "INSTANTIATES": 80803,
           "AUTOWIRED": 1500,
-          "READS": 337849,
           "EXTENDS": 17114,
+          "READS": 337849,
           "ANNOTATED_WITH": 3642,
           "CALLS": 1182139,
           "REFERENCES": 83932,
@@ -82,8 +82,9 @@
       "match_rate": 0.9976,
       "file_coverage": 0.9998,
       "attributed_file_count": 16673,
+      "hierarchy_file_count": 16673,
       "java_files_seen": 16677,
-      "seconds": 168.46,
+      "seconds": 173.64,
       "match_stats": {
         "matched_methods": 277554,
         "matched_fields": 686826,
@@ -99,71 +100,64 @@
       }
     },
     "javac": {
-      "available": true,
-      "reason": "",
-      "edges": 338010,
-      "file_coverage": 1.0,
-      "attribution_rate": 0.9142,
-      "attributed_file_count": 16677,
-      "seconds": 151.9
+      "available": false,
+      "reason": "skipped: bytecode coverage 0.9998 >= 0.98",
+      "edges": 0,
+      "file_coverage": 0.0,
+      "attribution_rate": 0.0,
+      "attributed_file_count": 0,
+      "seconds": 0.0
     }
   },
   "stages": [
     {
       "name": "unzipping",
-      "duration_s": 5.217,
-      "mem_start_mb": 2111.5,
-      "mem_end_mb": 2558.6,
-      "mem_peak_mb": 2936.6
+      "duration_s": 5.233,
+      "mem_start_mb": 2131.6,
+      "mem_end_mb": 2720.4,
+      "mem_peak_mb": 2974.6
     },
     {
       "name": "discovering",
       "duration_s": 0.0,
-      "mem_start_mb": 2991.1,
-      "mem_end_mb": 2991.1,
-      "mem_peak_mb": 2991.1
+      "mem_start_mb": 3257.1,
+      "mem_end_mb": 3257.1,
+      "mem_peak_mb": 3257.1
     },
     {
       "name": "graph_parsing",
-      "duration_s": 904.302,
-      "mem_start_mb": 2991.1,
-      "mem_end_mb": 3902.8,
-      "mem_peak_mb": 4440.9
+      "duration_s": 670.686,
+      "mem_start_mb": 3257.1,
+      "mem_end_mb": 4181.0,
+      "mem_peak_mb": 4559.3
     },
     {
       "name": "resolving",
-      "duration_s": 698.476,
-      "mem_start_mb": 3949.3,
-      "mem_end_mb": 4240.2,
-      "mem_peak_mb": 4571.4
+      "duration_s": 580.45,
+      "mem_start_mb": 4246.7,
+      "mem_end_mb": 3724.9,
+      "mem_peak_mb": 4883.3
     },
     {
       "name": "bytecode",
-      "duration_s": 0.316,
-      "mem_start_mb": 3949.3,
-      "mem_end_mb": 3949.3,
-      "mem_peak_mb": 3949.3
-    },
-    {
-      "name": "javac",
-      "duration_s": 0.0,
-      "mem_start_mb": 4637.5,
-      "mem_end_mb": 4637.5,
-      "mem_peak_mb": 4637.5
+      "duration_s": 0.307,
+      "mem_start_mb": 4246.7,
+      "mem_end_mb": 4255.2,
+      "mem_peak_mb": 4255.2
     },
     {
       "name": "deriving",
-      "duration_s": 100.01,
-      "mem_start_mb": 5290.3,
-      "mem_end_mb": 5080.4,
-      "mem_peak_mb": 5298.4
+      "duration_s": 71.043,
+      "mem_start_mb": 4588.5,
+      "mem_end_mb": 4041.3,
+      "mem_peak_mb": 4588.5
     },
     {
       "name": "writing_graph",
-      "duration_s": 2.443,
-      "mem_start_mb": 5080.4,
-      "mem_end_mb": 4998.8,
-      "mem_peak_mb": 5080.4
+      "duration_s": 2.94,
+      "mem_start_mb": 4041.3,
+      "mem_end_mb": 4042.0,
+      "mem_peak_mb": 4042.0
     }
   ]
 }
