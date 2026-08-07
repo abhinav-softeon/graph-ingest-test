@@ -1509,8 +1509,9 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
     """
     kinds = getattr(report, "function_sink_kinds", None) or {}
     sources = getattr(report, "function_sources", None) or set()
+    sanitizers = getattr(report, "function_sanitizers", None) or set()
     sites = getattr(report, "function_sites", None) or {}
-    if not (kinds or sources or sites):
+    if not (kinds or sources or sanitizers or sites):
         return
 
     marked = 0
@@ -1519,8 +1520,9 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
         nid = n.id
         k = kinds.get(nid)
         is_src = nid in sources
+        is_san = nid in sanitizers
         s = sites.get(nid)
-        if not (k or is_src or s):
+        if not (k or is_src or is_san or s):
             continue
         # Mixed object shapes can happen when old extract-cache/checkpoint
         # bundles are deserialized after Node gained taint slots. Skip those
@@ -1534,6 +1536,8 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
             n.taint_categories = sorted(k)
         if is_src:
             n.taint_source = True
+        if is_san:
+            n.taint_sanitizer = True
         if s:
             n.taint_sites = json.dumps(
                 [{"line": ln, "cat": cat, "role": role, "args": list(args)}
@@ -1558,6 +1562,7 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
     # Consumed — drop before resolve/derive rather than carrying them through.
     kinds.clear()
     sources.clear()
+    sanitizers.clear()
     sites.clear()
 
 

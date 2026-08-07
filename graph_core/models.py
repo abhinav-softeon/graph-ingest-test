@@ -115,6 +115,7 @@ class Node:
     # that key is (function, line), which is exactly a call site.
     taint_categories: list[str] = field(default_factory=list)
     taint_source: bool = False
+    taint_sanitizer: bool = False
     taint_sites: str = ""            # compact JSON, "" when the function has none
     # provenance
     extractor: str = ""              # who produced this node (tree-sitter)
@@ -170,6 +171,7 @@ class Node:
             "is_lock": self.is_lock,
             "taint_categories": self.taint_categories,
             "taint_source": self.taint_source,
+            "taint_sanitizer": self.taint_sanitizer,
             "taint_sites": self.taint_sites,
             "confidence": self.confidence,
         })

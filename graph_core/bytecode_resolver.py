@@ -122,6 +122,7 @@ class BytecodeReport:
     #   function_sites       {caller_id: [(line, kind, role, (arg positions,)), ...]}
     function_sink_kinds: dict = field(default_factory=dict)
     function_sources: set = field(default_factory=set)
+    function_sanitizers: set = field(default_factory=set)
     function_sites: dict = field(default_factory=dict)
     seconds: float = 0.0
     match_stats: dict = field(default_factory=dict)
@@ -347,6 +348,7 @@ def resolve_java_bytecode(
     unclassified_owners: dict[str, int] = {}
     sink_kinds: dict[str, set] = {}
     sink_sources: set[str] = set()
+    sink_sanitizers: set[str] = set()
     sink_sites: dict[str, list] = {}
     unclassified_overflow = [0]  # list, so the hot loop rebinds nothing
 
@@ -466,6 +468,13 @@ def resolve_java_bytecode(
                         sink_sources.add(caller_id)
                     elif _entry.role == "sink":
                         sink_kinds.setdefault(caller_id, set()).add(_entry.category)
+                    elif _entry.role == "sanitizer":
+                        # Was recorded only inside taint_sites (a JSON blob), so
+                        # it could not be queried. A sanitizer on a path is the
+                        # strongest cheap demotion signal there is, and with only
+                        # 18 sanitizer owners catalogued, unsanitized-looking
+                        # false positives are the dominant noise class.
+                        sink_sanitizers.add(caller_id)
                     if inv.line:
                         sink_sites.setdefault(caller_id, []).append(
                             (inv.line, _entry.category, _entry.role, _args))
@@ -651,6 +660,7 @@ def resolve_java_bytecode(
     rep.unclassified_external_owners = unclassified_owners
     rep.function_sink_kinds = sink_kinds
     rep.function_sources = sink_sources
+    rep.function_sanitizers = sink_sanitizers
     rep.function_sites = sink_sites
     if unclassified_overflow[0]:
         _log.warning(

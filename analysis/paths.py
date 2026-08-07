@@ -97,7 +97,21 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
                entry.fqn AS entry_fqn, entry.file AS entry_file,
                sink.fqn AS sink_fqn, sink.file AS sink_file,
                sink.start_line AS sink_line,
-               sink_kinds, sink_names, length(p) AS hops
+               sink_kinds, sink_names, length(p) AS hops,
+               // Per-hop provenance. A path is only as trustworthy as its
+               // WEAKEST edge: an all-bytecode chain is what javac resolved,
+               // while one `receiver_type_hint+arity` hop makes the whole chain
+               // a guess. Without these a consumer cannot tell the two apart and
+               // has to treat 2,000 paths as equally credible, which wastes the
+               // model's time on the ones least likely to be real.
+               [r IN relationships(p) | r.strategy] AS strategies,
+               [r IN relationships(p) | r.confidence] AS confidences,
+               // Any catalogued sanitizer applied anywhere along the chain.
+               // Not proof the path is safe -- it does not say the sanitizer was
+               // applied to THIS value -- but a strong demotion signal, and the
+               // single biggest false-positive class while the catalog has few
+               // sanitizer entries.
+               any(n IN nodes(p) WHERE n.taint_sanitizer = true) AS has_sanitizer
         ORDER BY hops, entry_fqn
         LIMIT $limit
         """,
