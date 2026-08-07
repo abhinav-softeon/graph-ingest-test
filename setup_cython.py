@@ -17,12 +17,25 @@ modules are picked up automatically in place of the .py files — CPython's
 import machinery prefers compiled extensions over source files with the same
 module name, so no other code needs to change.
 """
-from Cython.Build import cythonize
+import sys
 from pathlib import Path
-from setuptools import setup
+
+from Cython.Build import cythonize
+from setuptools import Extension, setup
+
+# Warnings clang raises about CYTHON-GENERATED C, not about this project's code.
+# Cython emits defensive error paths and switch fallthroughs; for any given
+# specialisation clang can prove some unreachable and says so, hundreds of times
+# per module. Silenced so a REAL compile error is visible instead of scrolling
+# past in the noise -- that is the only reason to touch them.
+#
+# Platform-gated: these are clang spellings, and gcc (the Docker build) does not
+# know -Wunreachable-code-fallthrough at all.
+_QUIET = (["-Wno-unreachable-code", "-Wno-unreachable-code-fallthrough"]
+          if sys.platform == "darwin" else [])
 
 
-def _cython_targets() -> list[str]:
+def _cython_targets() -> list[Extension]:
     """All eligible project modules to compile.
 
     Keeps this build script maintenance-free: any new module under the core
@@ -60,7 +73,10 @@ def _cython_targets() -> list[str]:
                 continue
             targets.append(str(path).replace("\\", "/"))
 
-    return sorted(targets)
+    return [
+        Extension(t[:-3].replace("/", "."), [t], extra_compile_args=_QUIET)
+        for t in sorted(targets)
+    ]
 
 setup(
     ext_modules=cythonize(
