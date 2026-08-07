@@ -36,6 +36,14 @@ _TRUSTED_ALL = (
 
 DEFAULT_MAX_DEPTH = 8      # covers controller->service->manager->dao->impl chains
 DEFAULT_HUB_CALLERS = 500  # above this a function is plumbing, not a step in a story
+# Raised from 2,000 after a measured run hit the cap at EVERY depth, with the
+# whole budget consumed by one kind. Because results are ORDER BY hops and then
+# truncated, a broad sink set does not cost precision -- it costs RECALL: 359
+# Class.forName paths and 183 ResultSet.next paths filled the limit and real
+# executeQuery paths were never returned at all. Truncation turns a precision
+# problem into a recall problem, so the cap has to sit above the real path count
+# rather than act as a sampler.
+DEFAULT_PATH_LIMIT = 20000
 
 
 def find_hubs(store, repo: str, min_callers: int = DEFAULT_HUB_CALLERS) -> list[dict]:
@@ -64,7 +72,7 @@ def find_hubs(store, repo: str, min_callers: int = DEFAULT_HUB_CALLERS) -> list[
 
 
 def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
-               max_depth: int = DEFAULT_MAX_DEPTH, limit: int = 2000,
+               max_depth: int = DEFAULT_MAX_DEPTH, limit: int = DEFAULT_PATH_LIMIT,
                hub_ids: list[str] | None = None,
                min_depth: int = 0,
                from_taint_source: bool = False) -> list[dict]:

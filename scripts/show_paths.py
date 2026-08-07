@@ -127,7 +127,7 @@ def main() -> None:
                          "those that actually read untrusted data (6.7k). "
                          "Broader and much noisier; the default is the real "
                          "taint question.")
-    ap.add_argument("--limit", type=int, default=2000)
+    ap.add_argument("--limit", type=int, default=paths.DEFAULT_PATH_LIMIT)
     ap.add_argument("--show", type=int, default=10)
     a = ap.parse_args()
 
