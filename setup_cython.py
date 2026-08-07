@@ -27,15 +27,34 @@ def _cython_targets() -> list[str]:
 
     Keeps this build script maintenance-free: any new module under the core
     runtime folders is picked up automatically without hand-editing this list.
-    Excludes package markers and tests.
+    Excludes package markers, tests and generated data modules.
+
+    `analysis/` is deliberately NOT a root. Everything in it is bound by Neo4j
+    round trips and LLM calls, not by Python execution — reach.py issues a
+    handful of Cypher statements and waits. Compiling it would add build time and
+    save nothing measurable. Cython pays off on the per-item loops in extraction,
+    resolution and bytecode parsing, which is what these four roots contain.
     """
     roots = ("graph_core", "ingest", "instrumentation", "sail_core")
     excluded_dirs = {"tests", "__pycache__"}
+    # Generated data modules: dict literals with no executable logic. Compiling
+    # one produces a very large C file and a slow build for exactly zero runtime
+    # gain, since there is no code in it to speed up.
+    excluded_files = {"findsecbugs_java.py"}
     targets: list[str] = []
 
     for root in roots:
         for path in Path(root).rglob("*.py"):
+            # __init__.py is skipped because compiling a package initialiser is
+            # fragile. NOTE the consequence: any hot function living in an
+            # __init__.py stays interpreted. graph_core/catalog/__init__.py holds
+            # classify_taint, which runs ~3.8M times per ingest — it is fast
+            # enough only because it is memoised (lru_cache). If that ever stops
+            # being true, move the runtime functions to catalog/lookup.py and
+            # re-export, rather than compiling the initialiser.
             if path.name == "__init__.py":
+                continue
+            if path.name in excluded_files:
                 continue
             if any(part in excluded_dirs for part in path.parts):
                 continue

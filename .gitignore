@@ -27,3 +27,12 @@ runs/index.jsonl
 # Local ad-hoc analysis/audit outputs
 run_audit.py
 ACCURACY_AUDIT.md
+
+# Cython output. NEVER commit these. git sets checkout mtimes to "now", so a
+# stale committed .c looks NEWER than the .py it came from — cythonize then skips
+# regeneration and setuptools compiles the old code into the new .so. That is a
+# silent stale build, and it cost two failed runs and a --force workaround before
+# it was understood. With no .c in the tree, regeneration is unconditional and
+# `python setup_cython.py build_ext --inplace` is always correct without --force.
+*.c
+*.py[cod]
