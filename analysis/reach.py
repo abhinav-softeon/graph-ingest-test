@@ -54,6 +54,20 @@ ENTRY_ANNOTATIONS = [
     "RestController", "Controller",
 ]
 
+# CWE category -> External kind, mirroring external_api._CATEGORY_TO_KIND.
+# Duplicated as a plain dict because this is passed to Cypher as a parameter and
+# reach.py must not import graph_core just for a lookup table. Anything unmapped
+# falls back to the generic taint_sink.
+CATEGORY_TO_KIND = {
+    "CWE-78/command-injection": "exec",
+    "CWE-94/code-injection": "exec",
+    "CWE-22/path-traversal": "file_write",
+    "CWE-502/unsafe-deserialization": "deserialize",
+    "CWE-79/xss": "response",
+    "CWE-113/response-splitting": "response",
+    "CWE-89/sql-injection": "db_execute",
+}
+
 _TRUSTED = (
     "(r.strategy = 'bytecode' OR r.strategy STARTS WITH 'receiver_type' "
     "OR r.strategy STARTS WITH 'same_')"
@@ -132,7 +146,16 @@ def mark_reaches_sink(store, repo: str, kinds: list[str] | None = None,
             repo=repo, sinks=SUMMARY_SINKS,
         )
 
-    # Seed 3 — the catalog's own ingest-time marking. Seed 1 above only sees a
+    # Seed 3 — the catalog's own ingest-time marking. Sets sink_kinds too, NOT
+    # just the boolean: mark_reaches_sink_kinds seeds from sink_kinds, so a
+    # function found only here would propagate no kinds and the kinds pass would
+    # cover a strictly smaller set than the boolean one. Measured on a real run
+    # before this line existed: 84,167 marked vs 84,024 with kinds, a silent
+    # 143-function gap.
+    #
+    # taint_categories are CWE labels and sink_kinds is External-kind vocabulary,
+    # so they are translated rather than mixed — the same two-vocabularies-in-one-
+    # property collision that forced the taint_categories rename. Seed 1 above only sees a
     # function whose sink produced a CALLS_EXTERNAL EDGE; this sees every
     # function the catalog recognised a sink in, including the heuristic/JSP path
     # where marks are written straight to the node. Deterministic, so unlike
@@ -143,10 +166,12 @@ def mark_reaches_sink(store, repo: str, kinds: list[str] | None = None,
         MATCH (f:Function {repo: $repo})
         WHERE f.taint_categories IS NOT NULL AND size(f.taint_categories) > 0
           AND f.reaches_sink IS NULL
-        SET f.reaches_sink = true
+        SET f.reaches_sink = true,
+            f.sink_kinds = [c IN f.taint_categories
+                            | coalesce($catmap[c], 'taint_sink')]
         RETURN count(f) AS n
         """,
-        repo=repo,
+        repo=repo, catmap=CATEGORY_TO_KIND,
     )
 
     # Fixpoint: one hop backward per iteration until nothing new is marked.
