@@ -89,6 +89,21 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
     """
     t0 = time.monotonic()
     hub_ids = hub_ids or []
+    # Default to the dangerous set rather than "any External kind at all".
+    #
+    # Without this the sink end is only required to HAVE some CALLS_EXTERNAL
+    # edge, so a function whose only external call is Integer.parseInt (a
+    # catalogued SANITIZER) or Connection.close (a release) qualifies as a sink.
+    # Measured on a real run: the top "sinks" included Integer.valueOf (72
+    # paths), Integer.parseInt (60), Boolean.valueOf (51) and
+    # DbManager.getConnection/Connection.close (134), and the returned kinds
+    # lists contained taint_sanitizer and taint_source. Those are not sinks, and
+    # every path ending at one is a false lead handed to the model.
+    #
+    # reach.DANGEROUS_KINDS is the same set the backward pass seeds from, so the
+    # two ends of the analysis now agree on what "dangerous" means.
+    from .reach import DANGEROUS_KINDS
+    sink_kinds = sink_kinds or DANGEROUS_KINDS
     kinds_clause = "AND x.kind IN $kinds" if sink_kinds else ""
     rows = store.read(
         f"""
@@ -125,7 +140,7 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
         ORDER BY hops, entry_fqn
         LIMIT $limit
         """,
-        repo=repo, kinds=sink_kinds or [], hub_ids=hub_ids, limit=limit,
+        repo=repo, kinds=sink_kinds, hub_ids=hub_ids, limit=limit,
     )
     out = [dict(r) for r in rows]
     if len(out) >= limit:
