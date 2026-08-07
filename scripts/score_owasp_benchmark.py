@@ -41,6 +41,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from graph_core.config import neo4j_config  # noqa: E402
 from graph_core.store import GraphStore  # noqa: E402
 
 # Benchmark category -> the catalog categories that should fire for it. Several
@@ -78,7 +79,9 @@ def load_marks(store: GraphStore, repo: str) -> dict[str, set[str]]:
     Keyed on the FILE, not the function: a Benchmark case is one file, and the
     sink often sits in a helper the test calls rather than in the entry method.
     """
-    rows = store._run(
+    # store.read, NOT store._run: _run returns .consume() -- a ResultSummary --
+    # so iterating it yields nothing. read() materialises the rows.
+    rows = store.read(
         """
         MATCH (f:Function {repo: $repo})
         WHERE f.taint_categories IS NOT NULL AND size(f.taint_categories) > 0
@@ -102,7 +105,7 @@ def main() -> None:
     a = ap.parse_args()
 
     expected = load_expected(a.expected)
-    store = GraphStore()
+    store = GraphStore(neo4j_config())
     try:
         marks = load_marks(store, a.repo)
     finally:

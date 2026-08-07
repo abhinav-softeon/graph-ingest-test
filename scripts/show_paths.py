@@ -31,6 +31,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analysis import paths  # noqa: E402
+from graph_core.config import neo4j_config  # noqa: E402
 from graph_core.store import GraphStore  # noqa: E402
 
 # Per-hop strategy -> how far that hop can be trusted, worst-first.
@@ -64,28 +65,44 @@ def _trust(strategy: str) -> float:
     return 0.30
 
 
-def score_path(row: dict) -> tuple[float, str]:
-    """(score, why). A chain is only as good as its WEAKEST hop -- the minimum,
-    not the average, which would let one fabricated hop hide behind nine solid
-    ones."""
+def score_path(row: dict) -> float:
+    """How far this chain can be trusted, 0..1.
+
+    The MINIMUM hop trust, not the average -- an average would let one fabricated
+    hop hide behind nine solid ones, and a chain is only as good as its weakest
+    link.
+
+    Returns a plain float, and explain_path() gives the reason separately. An
+    earlier version returned a (score, why) tuple, which forced every caller into
+    nested unpacking for no benefit.
+    """
     strategies = row.get("strategies") or []
     if not strategies:
-        # Zero-hop path: entry and sink are the same function, so there is no
-        # edge to judge. The catalog match itself is the evidence, and that is
+        # Zero-hop: entry and sink are the same function, so there is no edge to
+        # judge. The catalog match itself is the evidence and that is
         # bytecode-grade, so this is high confidence rather than unknown.
-        return (0.95, "0-hop (sink called directly in the entry function)")
-    trusts = [_trust(s) for s in strategies]
-    score = min(trusts)
-    weakest = strategies[trusts.index(score)] or "?"
-    why = f"weakest hop: {weakest}"
+        return 0.95
+    score = min(_trust(s) for s in strategies)
     if row.get("has_sanitizer"):
         score *= 0.5
+    if (row.get("hops") or 0) > 6:
+        score *= 0.9
+    return round(score, 3)
+
+
+def explain_path(row: dict) -> str:
+    """Why score_path returned what it did."""
+    strategies = row.get("strategies") or []
+    if not strategies:
+        return "0-hop (sink called directly in the entry function)"
+    trusts = [_trust(s) for s in strategies]
+    why = f"weakest hop: {strategies[trusts.index(min(trusts))] or '?'}"
+    if row.get("has_sanitizer"):
         why += " + sanitizer on path"
     hops = row.get("hops") or 0
     if hops > 6:
-        score *= 0.9
         why += f" + long ({hops} hops)"
-    return round(score, 3), why
+    return why
 
 
 def _sink_label(r: dict) -> str:
@@ -101,13 +118,14 @@ def main() -> None:
     ap.add_argument("--kinds", nargs="*", default=None)
     ap.add_argument("--max-depth", type=int, default=None)
     ap.add_argument("--min-hops", type=int, default=0,
-                    help="drop paths shorter than this. Use 1 to skip the "
-                         "0-hop JSP hits that otherwise consume the whole limit.")
+                    help="minimum path length, enforced IN the query. Use 1 to "
+                         "skip the 0-hop JSP hits that otherwise consume the "
+                         "whole limit before any chain is reached.")
     ap.add_argument("--limit", type=int, default=2000)
     ap.add_argument("--show", type=int, default=10)
     a = ap.parse_args()
 
-    store = GraphStore()
+    store = GraphStore(neo4j_config())
     try:
         rows_n = store.read(
             """
@@ -124,8 +142,11 @@ def main() -> None:
         hubs = paths.find_hubs(store, a.repo)
         print(f"hubs excluded: {len(hubs):,}")
 
+        # Passed INTO the query, not applied to its results: ordering is by hops
+        # ascending, so a post-filter just discards everything the limit already
+        # spent itself on.
         kw = dict(repo=a.repo, sink_kinds=a.kinds, limit=a.limit,
-                  hub_ids=[h["id"] for h in hubs])
+                  hub_ids=[h["id"] for h in hubs], min_depth=a.min_hops)
         if a.max_depth is not None:
             kw["max_depth"] = a.max_depth
         rows = paths.sink_paths(store, **kw)
@@ -139,21 +160,17 @@ def main() -> None:
                   f"  Results are ordered by hops, so multi-hop chains were "
                   f"never reached. Re-run with --min-hops 1.")
 
-        if a.min_hops:
-            rows = [r for r in rows if (r.get("hops") or 0) >= a.min_hops]
-            print(f"after --min-hops {a.min_hops}: {len(rows):,}")
-
         rows = paths.dedupe_paths(rows)
         print(f"after dedupe: {len(rows):,}")
         if not rows:
             print("\n  No paths left.")
             return
 
-        scored = sorted(((score_path(r), r) for r in rows), key=lambda t: -t[0][0])
+        rows.sort(key=score_path, reverse=True)
         buckets = collections.Counter(
-            "high  (>=0.8)" if sc >= 0.8 else
-            "med   (0.5-0.8)" if sc >= 0.5 else
-            "low   (<0.5)" for (sc, _w), _r in scored)
+            "high  (>=0.8)" if score_path(r) >= 0.8 else
+            "med   (0.5-0.8)" if score_path(r) >= 0.5 else
+            "low   (<0.5)" for r in rows)
         print("\npath confidence (min hop trust, sanitizer/length adjusted):")
         for b in ("high  (>=0.8)", "med   (0.5-0.8)", "low   (<0.5)"):
             if buckets.get(b):
@@ -165,13 +182,14 @@ def main() -> None:
             print(f"  {c:>6}  {name}")
 
         print(f"\ntop {a.show} paths by confidence:")
-        for (sc, why), r in scored[:a.show]:
+        for r in rows[:a.show]:
             fqns = r.get("fqns") or []
             short = [str(f).rsplit(".", 1)[-1] for f in fqns]
             chain = " -> ".join(short) if short else "?"
             kinds = ",".join(r.get("sink_kinds") or []) or "?"
-            print(f"  [{sc:.2f}] [{kinds}] ({r.get('hops', 0)}h) {chain[:150]}")
-            print(f"          sink={_sink_label(r)}  {why}")
+            print(f"  [{score_path(r):.2f}] [{kinds}] ({r.get('hops', 0)}h) "
+                  f"{chain[:150]}")
+            print(f"          sink={_sink_label(r)}  {explain_path(r)}")
 
         batches = paths.batch_paths(rows)
         print(f"\n{len(batches):,} Pass B batches (paths sharing a sink stay together)")

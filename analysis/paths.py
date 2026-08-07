@@ -65,7 +65,8 @@ def find_hubs(store, repo: str, min_callers: int = DEFAULT_HUB_CALLERS) -> list[
 
 def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
                max_depth: int = DEFAULT_MAX_DEPTH, limit: int = 2000,
-               hub_ids: list[str] | None = None) -> list[dict]:
+               hub_ids: list[str] | None = None,
+               min_depth: int = 0) -> list[dict]:
     """Entry-point -> sink paths within the universe.
 
     Anchored at BOTH ends — starts at a `from_entry` function, ends at one with a
@@ -76,6 +77,15 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
     `limit` is applied in Cypher and reported by the caller when hit: a truncated
     path set that looks complete is the failure mode this whole module is trying to
     avoid.
+
+    ``min_depth`` is part of the PATTERN, not a filter on the results, and that
+    distinction is the whole point. Results are ordered by hops ascending, so on a
+    JSP-heavy codebase the limit is consumed entirely by 0-hop paths -- an entry
+    function that is itself the sink -- before any cross-function chain is
+    reached. Measured: 2,000 of 2,000 returned paths were 0-hop, and filtering
+    them out afterwards left nothing, because the multi-hop ones were never
+    fetched. Setting min_depth=1 makes Neo4j skip those expansions entirely
+    instead of ranking them first.
     """
     t0 = time.monotonic()
     hub_ids = hub_ids or []
@@ -83,7 +93,7 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
     rows = store.read(
         f"""
         MATCH (entry:Function {{repo: $repo, from_entry: true}})
-        MATCH p = (entry)-[:CALLS*0..{int(max_depth)}]->(sink:Function)
+        MATCH p = (entry)-[:CALLS*{int(min_depth)}..{int(max_depth)}]->(sink:Function)
         WHERE sink.reaches_sink = true
           AND {_TRUSTED_ALL}
           AND none(n IN nodes(p) WHERE n.id IN $hub_ids)
@@ -111,7 +121,7 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
                // applied to THIS value -- but a strong demotion signal, and the
                // single biggest false-positive class while the catalog has few
                // sanitizer entries.
-               any(n IN nodes(p) WHERE n.taint_sanitizer = true) AS has_sanitizer
+               any(n IN nodes(p) WHERE coalesce(n.taint_sanitizer, false)) AS has_sanitizer
         ORDER BY hops, entry_fqn
         LIMIT $limit
         """,
@@ -124,8 +134,8 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
             "Narrow sink_kinds or lower max_depth rather than treating this as full "
             "coverage.", limit,
         )
-    _log.info("[paths] %s path(s), depth<=%s, in %.1fs",
-              len(out), max_depth, time.monotonic() - t0)
+    _log.info("[paths] %s path(s), depth %s..%s, in %.1fs",
+              len(out), min_depth, max_depth, time.monotonic() - t0)
     return out
 
 

@@ -22,6 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analysis import reach  # noqa: E402
+from graph_core.config import neo4j_config  # noqa: E402
 from graph_core.store import GraphStore  # noqa: E402
 
 
@@ -41,7 +42,7 @@ def main() -> None:
         kinds = [k for k in kinds if k != "db_other"]
     print(f"sink kinds: {kinds}\n")
 
-    store = GraphStore()
+    store = GraphStore(neo4j_config())
     try:
         pre = store.read(
             """
