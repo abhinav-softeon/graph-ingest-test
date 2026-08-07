@@ -151,3 +151,43 @@ class TestMarking:
         assert not rep.function_sink_kinds
         assert not rep.function_sources
         assert not rep.function_sites
+
+
+class TestStaleBuildDegradesGracefully:
+    """A stale compiled build must not destroy a run.
+
+    models.py is Cython-compiled, and Node is a slots dataclass — so a new
+    pipeline.so against an old models.so raises AttributeError on the first
+    assignment, roughly 15 minutes into a build, after extraction is already
+    paid for. Taint marks are an annotation; the graph is complete without them.
+    """
+
+    class _OldNode:
+        """A Node from before the taint fields existed."""
+        __slots__ = ("id", "label")
+
+        def __init__(self, nid):
+            self.id = nid
+            self.label = "Function"
+
+    def test_missing_fields_skip_marking_instead_of_raising(self):
+        from graph_core.bytecode_resolver import BytecodeReport
+        rep = BytecodeReport()
+        rep.function_sink_kinds = {"a": {"CWE-89/sql-injection"}}
+        rep.function_sources = {"a"}
+        rep.function_sites = {"a": [(1, "CWE-89/sql-injection", "sink", (0,))]}
+        old = [self._OldNode("a")]
+        _apply_taint_marks(old, rep, "t")   # must not raise
+        assert not rep.function_sink_kinds, "marks should be dropped, not retained"
+
+    def test_a_current_node_still_gets_marked(self):
+        """The guard must not fire on a healthy build."""
+        from graph_core.bytecode_resolver import BytecodeReport
+        from graph_core.models import Node
+        rep = BytecodeReport()
+        rep.function_sink_kinds = {"a": {"CWE-89/sql-injection"}}
+        rep.function_sources = set()
+        rep.function_sites = {}
+        n = Node(id="a", label="Function", name="f", fqn="f", repo="t")
+        _apply_taint_marks([n], rep, "t")
+        assert n.taint_categories == ["CWE-89/sql-injection"]

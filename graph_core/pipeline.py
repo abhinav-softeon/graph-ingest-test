@@ -1512,6 +1512,34 @@ def _apply_taint_marks(nodes: list, report, repo: str) -> None:
     sites = getattr(report, "function_sites", None) or {}
     if not (kinds or sources or sites):
         return
+
+    # Node is a slots dataclass, so assigning a field it does not declare raises
+    # AttributeError rather than creating one. That happens for exactly one
+    # reason in practice: a STALE COMPILED BUILD. models.py is in
+    # setup_cython.py's list, so a freshly built pipeline.so running against a
+    # models.so from before these fields existed fails here — and it fails ~15
+    # minutes into a run, after extraction has already been paid for.
+    #
+    # Taint marking is an annotation, not a correctness requirement: the graph is
+    # complete without it. Losing a whole build over one is a bad trade, so skip
+    # loudly instead. The warning names the fix because the symptom
+    # ("'Node' object has no attribute 'taint_categories'") does not obviously
+    # point at a build step.
+    probe = next((n for n in nodes if n.label == "Function"), None)
+    if probe is not None and not hasattr(probe, "taint_categories"):
+        _log.warning(
+            "[graph_ingest][repo=%s] taint marking SKIPPED — the Node class in "
+            "this process has no taint fields, which means a stale compiled "
+            "build (models.py is Cython-compiled). Rebuild with: "
+            "find . -name '*.so' -delete && rm -rf build/ && "
+            "python setup_cython.py build_ext --inplace --force. "
+            "The graph is otherwise complete; only taint annotations are missing.",
+            repo,
+        )
+        kinds.clear()
+        sources.clear()
+        sites.clear()
+        return
     marked = 0
     for n in nodes:
         nid = n.id
