@@ -93,6 +93,29 @@ class Node:
     # Field-node-only metadata
     scope: str = ""                   # Field: class|module — where the variable lives
     is_lock: bool = False             # Field: True if assigned a Lock/RLock/Semaphore/Condition
+    # Taint marking (Function nodes). Set from the vulnerability catalog during
+    # the bytecode pass, BEFORE the pre-resolve write — so they persist without
+    # needing a place in SlimNode, since nothing post-resolve reads them back.
+    #
+    # taint_categories/taint_source are the cheap function-level facts a
+    # reachability pass seeds from (analysis/reach.py already marks
+    # `reaches_sink` this way off Pass A's LLM summary; these make the same seed
+    # deterministic).
+    #
+    # NAMED taint_categories, NOT sink_kinds, and the distinction is load-bearing:
+    # reach.py already writes `f.sink_kinds` at ANALYSIS time using the External
+    # kind vocabulary (db_execute / exec / file_write). These carry CWE
+    # CATEGORIES (CWE-89/sql-injection). Two vocabularies in one property would
+    # have silently collided, and reach.py runs later, so it would have
+    # overwritten every value set here with no error anywhere.
+    #
+    # taint_sites carries the part a boolean cannot: WHICH line, WHICH argument.
+    # Without it a finding can only point at the function declaration, and the
+    # dedup key for "same defect reached by five paths" has nothing to key on —
+    # that key is (function, line), which is exactly a call site.
+    taint_categories: list[str] = field(default_factory=list)
+    taint_source: bool = False
+    taint_sites: str = ""            # compact JSON, "" when the function has none
     # provenance
     extractor: str = ""              # who produced this node (tree-sitter)
     confidence: str = Confidence.EXTRACTED.value
@@ -145,6 +168,9 @@ class Node:
             "module_id": self.module_id,
             "scope": self.scope,
             "is_lock": self.is_lock,
+            "taint_categories": self.taint_categories,
+            "taint_source": self.taint_source,
+            "taint_sites": self.taint_sites,
             "confidence": self.confidence,
         })
 

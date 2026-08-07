@@ -64,12 +64,19 @@ _MAX_ITERATIONS = 50  # runaway guard; a real repo converges in well under 20
 
 def clear_marks(store, repo: str) -> None:
     """Reset marks. Always run before re-marking — a stale `reaches_sink` from a
-    previous sink catalog would otherwise be indistinguishable from a fresh one."""
+    previous sink catalog would otherwise be indistinguishable from a fresh one.
+
+    Covers the ANALYSIS-time marks only. The ingest-time taint properties
+    (taint_categories / taint_source / taint_sites) are deliberately left alone:
+    they are rewritten wholesale by each ingest and are not derived from the sink
+    catalog being swapped here."""
     store._run(
         """
         MATCH (f:Function {repo: $repo})
         WHERE f.reaches_sink IS NOT NULL OR f.from_entry IS NOT NULL
-        SET f.reaches_sink = NULL, f.from_entry = NULL, f.sink_kinds = NULL
+           OR f.reaches_sink_kinds IS NOT NULL
+        SET f.reaches_sink = NULL, f.from_entry = NULL, f.sink_kinds = NULL,
+            f.reaches_sink_kinds = NULL
         """,
         repo=repo,
     )
@@ -158,6 +165,89 @@ def mark_reaches_sink(store, repo: str, kinds: list[str] | None = None,
            "propagated": total_propagated, "total_marked": marked,
            "iterations": iterations, "seconds": round(time.monotonic() - t0, 2)}
     _log.info("[reach] reaches_sink: %s", out)
+    return out
+
+
+def mark_reaches_sink_kinds(store, repo: str) -> dict:
+    """Propagate WHICH sink classes each function can reach, not merely whether.
+
+    `mark_reaches_sink` above answers a boolean, and Seed 1 records `sink_kinds`
+    only on the functions that call an External sink DIRECTLY. Everything marked
+    by the backward fixpoint gets `reaches_sink = true` and nothing else — so a
+    caller five hops from a sink cannot be told apart from one that is five hops
+    from a `response` write. That matters when a function fans out: if F calls A,
+    B and C and only B leads anywhere dangerous, a boolean says "F reaches a
+    sink" and gives a path walker no reason to prefer B, so it explores all
+    three.
+
+    Run AFTER mark_reaches_sink. Seeds from the `sink_kinds` that seed set
+    already wrote, then unions callee sets backward to a fixpoint.
+
+    WHY THIS NEEDS ITS OWN FIXPOINT rather than riding the boolean one: that loop
+    marks each caller exactly once (`caller.reaches_sink IS NULL`), which is what
+    makes it converge. Kind sets do not work that way — a caller can be marked in
+    iteration 1 through a callee whose own kind set is still incomplete, and grow
+    again in iteration 3. Merging kinds inside that loop would silently truncate.
+
+    Termination: kind sets only ever GROW and are bounded by the number of
+    distinct kinds, and an iteration that grows nothing returns 0 and stops. So
+    it converges for the same reason the boolean version does, one level up.
+
+    NOT VERIFIED AGAINST A LIVE DATABASE — written without a Neo4j to run it on.
+    The Cypher is straightforward but unexecuted; treat the first real run as the
+    test, and check `iterations` is well under the guard.
+    """
+    t0 = time.monotonic()
+    # Seed: whatever Seed 1 of mark_reaches_sink already recorded.
+    seeded = _count(
+        store,
+        """
+        MATCH (f:Function {repo: $repo})
+        WHERE f.sink_kinds IS NOT NULL AND size(f.sink_kinds) > 0
+          AND f.reaches_sink_kinds IS NULL
+        SET f.reaches_sink_kinds = f.sink_kinds
+        RETURN count(f) AS n
+        """,
+        repo=repo,
+    )
+
+    iterations, total_grown = 0, 0
+    while iterations < _MAX_ITERATIONS:
+        grown = _count(
+            store,
+            f"""
+            MATCH (caller:Function {{repo: $repo}})-[r:CALLS]->(callee:Function)
+            WHERE callee.reaches_sink_kinds IS NOT NULL
+              AND {_TRUSTED}
+            WITH caller, collect(DISTINCT callee.reaches_sink_kinds) AS lists
+            WITH caller,
+                 reduce(acc = coalesce(caller.reaches_sink_kinds, []), l IN lists |
+                        acc + [k IN l WHERE NOT k IN acc]) AS merged
+            WHERE size(merged) > size(coalesce(caller.reaches_sink_kinds, []))
+            SET caller.reaches_sink_kinds = merged
+            RETURN count(caller) AS n
+            """,
+            repo=repo,
+        )
+        iterations += 1
+        total_grown += grown
+        if grown == 0:
+            break
+    else:
+        _log.warning(
+            "[reach] reaches_sink_kinds hit the %s-iteration guard — not "
+            "converged; the sets below are a lower bound, not the answer",
+            _MAX_ITERATIONS)
+
+    marked = _count(
+        store,
+        "MATCH (f:Function {repo: $repo}) WHERE f.reaches_sink_kinds IS NOT NULL "
+        "RETURN count(f) AS n",
+        repo=repo,
+    )
+    out = {"seeded": seeded, "grown": total_grown, "total_marked": marked,
+           "iterations": iterations, "seconds": round(time.monotonic() - t0, 2)}
+    _log.info("[reach] reaches_sink_kinds: %s", out)
     return out
 
 

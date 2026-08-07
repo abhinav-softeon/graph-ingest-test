@@ -49,11 +49,25 @@ class TestClassifier:
         assert classify_call("java.sql.Statement", "executeUpdate") == DB_EXECUTE
 
     def test_unknown_method_on_a_known_type_is_still_db_work(self):
-        """Dropping these would lose ResultSet.getString and
-        PreparedStatement.setString — 32k calls in the measured repo. "Touches a
-        Connection" is itself the signal."""
-        assert classify_call("java.sql.ResultSet", "getString") == DB_OTHER
-        assert classify_call("java.sql.PreparedStatement", "setString") == DB_OTHER
+        """Dropping these would lose ResultSet/PreparedStatement member access —
+        32k calls in the measured repo. "Touches a Connection" is itself the
+        signal, so the answer must never be ''.
+
+        The methods checked here are ones the catalog says nothing about. The
+        guarantee is unchanged; the examples moved, because getString and
+        setString are now catalogued (a second-order source and a sanitizer
+        respectively) and answer with those more specific kinds instead. See
+        test_vuln_catalog's TestExternalApiIntegration for that precedence.
+        """
+        assert classify_call("java.sql.ResultSet", "getInt") == DB_OTHER
+        assert classify_call("java.sql.ResultSet", "getMetaData") == DB_OTHER
+        assert classify_call("java.sql.PreparedStatement", "getParameterMetaData") == DB_OTHER
+
+    def test_catalogued_members_stay_classified_but_more_precisely(self):
+        """The same guarantee as above, for the members that ARE catalogued:
+        still never '', just a better answer than the generic fallback."""
+        assert classify_call("java.sql.ResultSet", "getString") != ""
+        assert classify_call("java.sql.PreparedStatement", "setString") != ""
 
     def test_acquire_by_return_type_regardless_of_owner(self):
         """The rule that makes this work on the real repo: a pool wrapper is not

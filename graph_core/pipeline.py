@@ -1,6 +1,7 @@
 """Phase 0 orchestration: discover -> extract -> resolve -> write."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -647,6 +648,47 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     known_node_ids: set[str] = {n.id for n in all_nodes}
     edge_stats.add(all_edges, known_node_ids)
 
+    def _extend_unique(new_nodes: list, source: str) -> list:
+        """Append nodes whose id is not already present; return those accepted.
+
+        The return value matters for the streaming path: `late_nodes` mirrors
+        what was appended after the pre-resolve write, so it has to receive the
+        FILTERED list or the duplicate reaches Neo4j anyway.
+
+        merge_bundles already dedupes by id (canonical_ir:43, first-wins), so
+        all_nodes is clean at this point — but every later producer appends
+        without checking, and each keeps its OWN private id set:
+        bytecode_resolver and resolver.resolve BOTH synthesize `External` nodes
+        via external_id(owner, method), neither can see the other's, so any
+        owner#method reached by both paths is created twice. That is what a
+        "duplicate node ids" validation error means here.
+
+        Harmless in Neo4j (MERGE collapses on id) and NOT harmless anywhere else:
+        the duplicates ride through resolve and derive in RAM, and anything keyed
+        by node id — a per-function CFG/DFG above all — silently merges two
+        entries into one.
+
+        First-wins is the correct rule, not merely the convenient one. The
+        earliest producer is tree-sitter, which owns source positions by design
+        (IMPLEMENTATION_PLAN D1); a later synthesized stand-in for the same fqn
+        must not displace the real extracted node.
+        """
+        accepted = []
+        for n in new_nodes:
+            if n.id in known_node_ids:
+                continue
+            known_node_ids.add(n.id)
+            all_nodes.append(n)
+            accepted.append(n)
+        dropped = len(new_nodes) - len(accepted)
+        if dropped:
+            _log.info(
+                "[graph_ingest][repo=%s] %s: %s node(s) already existed by id and "
+                "were not appended (%s new)", repo, source, dropped,
+                len(accepted),
+            )
+        return accepted
+
     # Refs source for resolve: RefStream (disk-backed, one batch at a time) under
     # streaming ingest, else the in-memory all_refs list (unchanged path).
     refs_source = RefStream(ckpt_root, repo, num_batches, total=streamed_ref_count) if stream_refs else all_refs
@@ -726,7 +768,8 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         )
         if bytecode_report.available:
             bytecode_owns = bytecode_report.attributed_files
-            all_nodes.extend(bytecode_nodes)
+            _extend_unique(bytecode_nodes, 'bytecode')
+            _apply_taint_marks(all_nodes, bytecode_report, repo)
         else:
             bytecode_edges = []
             _log.info(
@@ -962,9 +1005,10 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     if stream_writer and writer_failure:
         raise writer_failure[0]
     del resolve_nodes  # just an alias for all_nodes now; drop the extra name
-    all_nodes.extend(extra_nodes)
+    _accepted_extra = _extend_unique(extra_nodes, 'resolve')
     if stream_nodes:
-        late_nodes.extend(extra_nodes)  # created after the pre-resolve write
+        # The filtered list, not extra_nodes — see _extend_unique's docstring.
+        late_nodes.extend(_accepted_extra)  # created after the pre-resolve write
     all_edges.extend(resolved_edges)
     # all_refs is only an input to resolve() — nothing below this point reads
     # it, but it was otherwise kept alive (one RawRef per call-site/import/
@@ -1155,8 +1199,11 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
 
     _beat("deriving", "package tree")
     pkg_nodes, pkg_edges = _build_package_tree(all_nodes, repo)
-    all_nodes.extend(pkg_nodes)
-    known_node_ids.update(n.id for n in pkg_nodes)
+    # Third producer with a private seen-set (_build_package_tree's own), same
+    # blind spot as bytecode and resolve. Package ids are make_id(repo, fqn,
+    # "package") so a collision needs another producer to have claimed the same
+    # fqn as a package — unlikely, which is exactly why it would go unnoticed.
+    pkg_nodes = _extend_unique(pkg_nodes, "package tree")
     if stream_nodes:
         late_nodes.extend(pkg_nodes)
     _add_edges(pkg_edges)
@@ -1390,6 +1437,72 @@ def _derive_overrides(
                         ))
             stack.extend(supers.get(anc, []))
     return out
+
+
+def _apply_taint_marks(nodes: list, report, repo: str) -> None:
+    """Stamp catalog taint facts onto the Function nodes that carry them.
+
+    Applied HERE — after the bytecode stage, before the pre-resolve write — for
+    two reasons. The write persists whatever is on the node at that moment, so
+    these reach Neo4j without needing a slot in SlimNode (nothing post-resolve
+    reads them back). And doing it before the slim projection means the full
+    Node objects are still around to mutate.
+
+    Three facts, cheapest first:
+
+      taint_categories  which vulnerability classes this function reaches
+                     DIRECTLY. Named to avoid reach.py's `sink_kinds`, which it
+                     writes at analysis time in a different vocabulary.
+                     analysis/reach.py already marks `reaches_sink` from Pass A's
+                     LLM summary; this is the same seed made deterministic, so
+                     reachability stops depending on whether a model happened to
+                     read the function.
+      taint_source   this function pulls in untrusted data.
+      taint_sites    the part a boolean cannot carry: line + role + which
+                     ARGUMENT. Without it a finding can only point at the
+                     function declaration, and (function, line) is the identity
+                     that collapses five paths to one sink into one finding.
+
+    The report's mark dicts are CLEARED at the end. One entry per marked function
+    held inside a returned object across the derive memory peak is exactly the
+    mistake `authoritative_override_methods` made and had to have undone.
+    """
+    kinds = getattr(report, "function_sink_kinds", None) or {}
+    sources = getattr(report, "function_sources", None) or set()
+    sites = getattr(report, "function_sites", None) or {}
+    if not (kinds or sources or sites):
+        return
+    marked = 0
+    for n in nodes:
+        nid = n.id
+        k = kinds.get(nid)
+        is_src = nid in sources
+        s = sites.get(nid)
+        if not (k or is_src or s):
+            continue
+        # Sorted so a re-ingest of unchanged source produces an identical
+        # property value — an unstable list would make every node look changed.
+        if k:
+            n.taint_categories = sorted(k)
+        if is_src:
+            n.taint_source = True
+        if s:
+            n.taint_sites = json.dumps(
+                [{"line": ln, "cat": cat, "role": role, "args": list(args)}
+                 for ln, cat, role, args in sorted(s)],
+                separators=(",", ":"),
+            )
+        marked += 1
+    _log.info(
+        "[graph_ingest][repo=%s] taint marks: %s function(s) marked "
+        "(%s with a sink, %s with a source, %s call site(s) recorded)",
+        repo, marked, len(kinds), len(sources),
+        sum(len(v) for v in sites.values()),
+    )
+    # Consumed — drop before resolve/derive rather than carrying them through.
+    kinds.clear()
+    sources.clear()
+    sites.clear()
 
 
 def _build_package_tree(nodes: list[Node], repo: str) -> tuple[list[Node], list[Edge]]:

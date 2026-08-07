@@ -141,6 +141,101 @@ def _classify_reflection(owner: str, method: str) -> str:
     return ""
 
 
+# Taint kinds, contributed by the vulnerability catalog rather than by the
+# resource classifier above. Kept as distinct values so a consumer can tell "this
+# call touches a database" from "this call is a known injection sink" — they are
+# different claims and only the second one names a vulnerability class.
+TAINT_SOURCE = "taint_source"
+TAINT_SINK = "taint_sink"
+TAINT_SANITIZER = "taint_sanitizer"
+
+_ROLE_TO_KIND = {
+    "source": TAINT_SOURCE,
+    "sink": TAINT_SINK,
+    "sanitizer": TAINT_SANITIZER,
+}
+
+# Catalog category -> the kind the ANALYSIS LAYER ALREADY ASKS FOR.
+#
+# analysis/reach.py seeds its reachability closure from
+# DANGEROUS_KINDS = [db_execute, db_other, exec, file_write, deserialize,
+# response, reflection] — but this module has only ever emitted db_*, reflection
+# and other. So `exec`, `file_write`, `deserialize` and `response` were dead
+# vocabulary: the analysis was written for sinks nothing ever produced.
+#
+# Those four are precisely the categories the catalog covers, so mapping onto the
+# existing words rather than minting new ones makes the catalog usable by
+# reach.py with no change on that side at all. A category with no existing word
+# falls back to the generic TAINT_SINK.
+_CATEGORY_TO_KIND = {
+    "CWE-78/command-injection": "exec",
+    "CWE-94/code-injection": "exec",          # ScriptEngine.eval executes code
+    "CWE-22/path-traversal": "file_write",
+    "CWE-502/unsafe-deserialization": "deserialize",
+    "CWE-79/xss": "response",
+    "CWE-113/response-splitting": "response",
+    "CWE-89/sql-injection": DB_EXECUTE,       # non-JDBC SQL sinks (JPA/Hibernate)
+}
+
+# Resolved ONCE per process, not per call. classify_call runs ~3.8M times on the
+# measured repo, and reading os.environ that often would cost more than the
+# classification itself — the same reason CONNECTION_SIMPLE_NAMES above is
+# precomputed instead of built inline.
+_ENABLED_CATEGORIES: frozenset | None = None
+
+
+def _enabled_categories() -> frozenset:
+    global _ENABLED_CATEGORIES
+    if _ENABLED_CATEGORIES is None:
+        from .catalog import all_categories, recommended_categories
+        from .config import catalog_external_setting
+        raw = catalog_external_setting()
+        low = raw.lower()
+        if low in ("", "off", "0", "false", "no"):
+            _ENABLED_CATEGORIES = frozenset()
+        elif low == "all":
+            _ENABLED_CATEGORIES = all_categories()
+        elif low == "recommended":
+            _ENABLED_CATEGORIES = recommended_categories()
+        else:
+            # Explicit list. Unknown names are kept rather than validated away —
+            # silently ignoring a typo'd category would look identical to the
+            # category simply having no calls, which is the harder bug to find.
+            _ENABLED_CATEGORIES = frozenset(
+                p.strip() for p in raw.split(",") if p.strip())
+    return _ENABLED_CATEGORIES
+
+
+def _reset_enabled_categories() -> None:
+    """Drop the cached setting. For tests that change the environment."""
+    global _ENABLED_CATEGORIES
+    _ENABLED_CATEGORIES = None
+
+
+def _classify_catalogued(owner: str, method: str) -> str:
+    """Taint kind from the vulnerability catalog, or '' when not catalogued.
+
+    Returns '' immediately when the feature is off, which is the default — so the
+    hot path costs one frozenset truth test in that case.
+    """
+    enabled = _enabled_categories()
+    if not enabled:
+        return ""
+    from .catalog import classify_taint
+    hit = classify_taint(owner, method)
+    if hit is None:
+        return ""
+    entry, _args = hit
+    if entry.category not in enabled:
+        return ""
+    # Sinks speak reach.py's vocabulary where one exists. Sources and sanitizers
+    # have no equivalent there (reach.py seeds entry points from annotations, not
+    # from External nodes), so they keep the generic taint_* kinds.
+    if entry.role == "sink":
+        return _CATEGORY_TO_KIND.get(entry.category, TAINT_SINK)
+    return _ROLE_TO_KIND.get(entry.role, "")
+
+
 def classify_call(owner: str, method: str, return_type: str = "") -> str:
     """Kind for a call, or '' when it is not database work.
 
@@ -157,20 +252,42 @@ def classify_call(owner: str, method: str, return_type: str = "") -> str:
     reflect = _classify_reflection(owner, method)
     if reflect:
         return reflect
-    if not owner or not _is_db_type(owner):
-        return ""
-    name = (method or "").lower()
-    if name in _ACQUIRE_METHODS:
-        return DB_ACQUIRE
-    if name in _RELEASE_METHODS:
-        return DB_RELEASE
-    if name in _EXECUTE_METHODS:
-        return DB_EXECUTE
-    # An unrecognised method on a KNOWN database type is still database work.
-    # "this function touches a Connection" is itself the signal; dropping it
-    # would lose ResultSet.getString, PreparedStatement.setString and friends,
-    # which are 32k calls in the measured repo.
-    return DB_OTHER
+    if owner and _is_db_type(owner):
+        name = (method or "").lower()
+        if name in _ACQUIRE_METHODS:
+            return DB_ACQUIRE
+        if name in _RELEASE_METHODS:
+            return DB_RELEASE
+        if name in _EXECUTE_METHODS:
+            return DB_EXECUTE
+        # Before the generic fallback: a catalogued answer is MORE specific than
+        # "unrecognised method on a database type", so it wins over DB_OTHER —
+        # and only over DB_OTHER. db_acquire/db_execute/db_release above are
+        # themselves specific and still take precedence.
+        #
+        # This exists for second-order taint. ResultSet.getString is database
+        # work AND a source of untrusted data (a value an attacker stored
+        # earlier, read back and concatenated into the next query). Classifying
+        # it DB_OTHER is not wrong, it is just the less useful of two true
+        # answers — and DB_OTHER sits in reach.py's DANGEROUS_KINDS, so it would
+        # additionally mark every ResultSet read as reaching a SINK, which is
+        # backwards for something that is a source.
+        catalogued = _classify_catalogued(owner, method)
+        if catalogued:
+            return catalogued
+        # An unrecognised method on a KNOWN database type is still database work.
+        # "this function touches a Connection" is itself the signal; dropping it
+        # would lose ResultSet.getString, PreparedStatement.setString and friends,
+        # which are 32k calls in the measured repo.
+        return DB_OTHER
+    # Everything above is unchanged and still wins: the DB and reflection answers
+    # carry a RESOURCE vocabulary (acquire/execute/release) that the catalog does
+    # not express, and the acquire-by-return-type rule above is the only thing
+    # that finds this repo's 171 differently-named connection factories.
+    #
+    # Only what would otherwise fall through to '' — and therefore produce no edge
+    # at all — reaches the catalog.
+    return _classify_catalogued(owner, method)
 
 
 def classify_external(owner: str, method: str, return_type: str = "",

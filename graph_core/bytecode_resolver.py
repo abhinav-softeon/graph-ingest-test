@@ -46,6 +46,7 @@ from .bytecode.classfile import (
     ClassFileError, ClassInfo, iter_class_files, iter_jar_classes, parse_class_file,
     type_name,
 )
+from .catalog import classify_taint, is_inventory_noise
 from .external_api import (
     classify_external, external_display, external_id, external_key,
 )
@@ -62,6 +63,17 @@ _log = get_logger(__name__)
 _ARCHIVE_EXTS = (".jar", ".war", ".ear")
 _STRATEGY = "bytecode"
 _EXTRACTOR = "bytecode"
+
+# Runaway guard on the per-METHOD inventory only, and set far above any real
+# API surface (a legacy Java webapp's JDK+library method surface measures in the
+# low tens of thousands). It is not a filter: hitting it is logged as a warning,
+# because a silent truncation here would read as "this is the whole worklist"
+# when it is not. Owner-level inventory has no cap at all.
+_UNCLASSIFIED_MAX_KEYS = 200000
+# How many to carry into the JSON run report / log. The distribution is steeply
+# skewed — a handful of APIs account for most calls — so the head is what matters
+# for deciding catalog order.
+_UNCLASSIFIED_REPORT_TOP = 100
 
 
 @dataclass
@@ -85,6 +97,32 @@ class BytecodeReport:
     synthesized_nodes: int = 0
     synthesis_skipped_no_lines: int = 0
     external_calls: int = 0         # callee outside the repo — Phase 4 material
+    # {owner#method: call_count} for out-of-repo calls external_api.classify_call
+    # did NOT recognise. These produce no External node and no CALLS_EXTERNAL
+    # edge (see the `if kind:` guard at the call site), so they are invisible to
+    # any sink-seeded analysis — and on the measured repo they are 97.9% of all
+    # external calls. This is the vulnerability catalog's worklist, ranked by how
+    # often the codebase actually makes the call, which is a far better priority
+    # order than importing an upstream rule set front-to-back.
+    unclassified_external: dict = field(default_factory=dict)
+    # {owner_fqn: call_count} for the same calls, tallied per TYPE with no cap and
+    # no noise filtering. Owner granularity is what the catalog is keyed on
+    # anyway (see catalog's owner-first note), and the key space is small enough
+    # that this is guaranteed complete — so "is this type in the graph's reach"
+    # is answerable from it, which a capped per-method sample cannot do.
+    unclassified_external_owners: dict = field(default_factory=dict)
+    # Function-level taint marking, collected in the invocation loop that is
+    # already running — no extra traversal. Handed to the pipeline, applied to
+    # the Function nodes, then CLEARED: holding one entry per marked function
+    # across the derive memory peak inside a returned object is the exact mistake
+    # authoritative_override_methods made and had to be undone.
+    #
+    #   function_sink_kinds  {caller_id: {kind, ...}}
+    #   function_sources     {caller_id}
+    #   function_sites       {caller_id: [(line, kind, role, (arg positions,)), ...]}
+    function_sink_kinds: dict = field(default_factory=dict)
+    function_sources: set = field(default_factory=set)
+    function_sites: dict = field(default_factory=dict)
     seconds: float = 0.0
     match_stats: dict = field(default_factory=dict)
     # Repo-relative paths this pass attributed, in BOTH separator spellings.
@@ -149,6 +187,19 @@ class BytecodeReport:
             "attributed_file_count": self.attributed_file_count,
             "hierarchy_file_count": self.hierarchy_file_count,
             "java_files_seen": self.java_files_seen,
+            # Head only: the full dict can be thousands of keys, and this struct
+            # is embedded in the run report and rendered in the UI.
+            "unclassified_external_distinct": len(self.unclassified_external),
+            "unclassified_external_top": dict(
+                sorted(self.unclassified_external.items(), key=lambda kv: -kv[1])
+                [:_UNCLASSIFIED_REPORT_TOP]
+            ),
+            # Owners are the catalog's unit of work and the list is complete, so
+            # this one is carried in full rather than as a head.
+            "unclassified_external_owners": dict(
+                sorted(self.unclassified_external_owners.items(),
+                       key=lambda kv: -kv[1])
+            ),
             "seconds": round(self.seconds, 2),
             "match_stats": dict(self.match_stats),
         }
@@ -292,6 +343,12 @@ def resolve_java_bytecode(
     seen: set[tuple[str, str, str]] = set()
     attributed: set[str] = set()
     external_ids: set[str] = set()
+    unclassified: dict[str, int] = {}
+    unclassified_owners: dict[str, int] = {}
+    sink_kinds: dict[str, set] = {}
+    sink_sources: set[str] = set()
+    sink_sites: dict[str, list] = {}
+    unclassified_overflow = [0]  # list, so the hot loop rebinds nothing
 
     # Class hierarchy, accumulated during the single parse pass and emitted
     # after it. EXTENDS/IMPLEMENTS could in principle be emitted inline — the
@@ -394,6 +451,25 @@ def resolve_java_bytecode(
                     type_name(ret) if ret[:1] == "L" else "",
                     include_other=include_external_other,
                 )
+                # Call-site facts, recorded wherever the catalog recognises the
+                # API — independent of whether an edge is emitted. This is the
+                # cheap half of a dataflow analysis: WHERE the sink is and WHICH
+                # argument is dangerous, without any def-use walking. It is what
+                # lets a reviewer be handed "line 412, argument 0" instead of
+                # "somewhere in this 2,000-line function", and (function, line)
+                # is the identity that makes five paths to one sink one finding
+                # rather than five.
+                _hit = classify_taint(inv.owner, inv.name)
+                if _hit is not None and caller_id:
+                    _entry, _args = _hit
+                    if _entry.role == "source":
+                        sink_sources.add(caller_id)
+                    elif _entry.role == "sink":
+                        sink_kinds.setdefault(caller_id, set()).add(_entry.category)
+                    if inv.line:
+                        sink_sites.setdefault(caller_id, []).append(
+                            (inv.line, _entry.category, _entry.role, _args))
+
                 if kind:
                     eid = external_id(inv.owner, inv.name)
                     if eid not in external_ids:
@@ -421,6 +497,31 @@ def resolve_java_bytecode(
                 callee = index.method_id(inv.owner, inv.name, inv.descriptor)
                 if not callee:
                     rep.external_calls += 1
+                    # Out-of-repo AND unrecognised: the pair the catalog needs to
+                    # cover before any sink analysis can see this call. Bounded by
+                    # distinct-key count, not by call count — the tally per key is
+                    # free, but a pathological input must not grow the dict without
+                    # limit at the extraction memory peak.
+                    if not kind:
+                        # Owner tally ALWAYS, uncapped and unfiltered. The key
+                        # space is distinct called types (hundreds to low
+                        # thousands), so no type can ever be missing from the
+                        # worklist — which is the property that makes this
+                        # usable as a coverage measure rather than a sample.
+                        unclassified_owners[inv.owner] = (
+                            unclassified_owners.get(inv.owner, 0) + 1)
+                        # Per-method detail, minus string/collection/boxing
+                        # churn. Those are unequivocally not sources, sinks or
+                        # sanitizers, and by call count they bury everything
+                        # else. Their owners are still tallied above.
+                        if not is_inventory_noise(inv.owner):
+                            _k = external_key(inv.owner, inv.name)
+                            if _k in unclassified:
+                                unclassified[_k] += 1
+                            elif len(unclassified) < _UNCLASSIFIED_MAX_KEYS:
+                                unclassified[_k] = 1
+                            else:
+                                unclassified_overflow[0] += 1
                     continue
                 key = ("CALLS", caller_id, callee)
                 if key in seen:
@@ -546,6 +647,18 @@ def resolve_java_bytecode(
     # the guard note above).
     rep.hierarchy_files = hierarchy_files
     rep.hierarchy_file_count = len({p.replace(os.sep, "/") for p in hierarchy_files})
+    rep.unclassified_external = unclassified
+    rep.unclassified_external_owners = unclassified_owners
+    rep.function_sink_kinds = sink_kinds
+    rep.function_sources = sink_sources
+    rep.function_sites = sink_sites
+    if unclassified_overflow[0]:
+        _log.warning(
+            "[bytecode] external API inventory hit its %s-key cap; %s further "
+            "call(s) were counted at owner level only. The per-method worklist "
+            "below is therefore INCOMPLETE — raise _UNCLASSIFIED_MAX_KEYS.",
+            _UNCLASSIFIED_MAX_KEYS, unclassified_overflow[0],
+        )
 
     # ---- OVERRIDES: descriptor-exact, not name+arity -------------------
     # pipeline._derive_overrides matches a method to an ancestor's on name +
@@ -629,6 +742,27 @@ def resolve_java_bytecode(
         "— %s EXTENDS/IMPLEMENTS are compiler facts for those files",
         rep.hierarchy_file_count, rep.java_files_seen, rep.hierarchy_edges,
     )
+    if rep.unclassified_external_owners:
+        _unrec = sum(rep.unclassified_external_owners.values())
+        _log.info(
+            "[bytecode] external APIs: %s call(s) to %s distinct UNRECOGNISED "
+            "owner type(s) produced no CALLS_EXTERNAL edge (%.1f%% of %s "
+            "external call(s)). Nothing sink-seeded can see these until "
+            "external_api.py classifies them. Top 30 owners by call count: %s",
+            _unrec, len(rep.unclassified_external_owners),
+            100 * _unrec / rep.external_calls if rep.external_calls else 0.0,
+            rep.external_calls,
+            dict(sorted(rep.unclassified_external_owners.items(),
+                        key=lambda kv: -kv[1])[:30]),
+        )
+    if rep.unclassified_external:
+        _log.info(
+            "[bytecode] external APIs: top 25 unrecognised owner#method "
+            "(string/collection/boxing churn excluded — those owners are still "
+            "counted above): %s",
+            dict(sorted(rep.unclassified_external.items(),
+                        key=lambda kv: -kv[1])[:25]),
+        )
     if rep.synthesis_skipped_no_lines:
         _log.info(
             "[bytecode] %s construct(s) skipped for lacking a LineNumberTable — "

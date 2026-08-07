@@ -124,6 +124,34 @@ def javac_skip_above_bytecode_coverage() -> float:
     return min(max(v, 0.0), 1.0)
 
 
+def catalog_external_setting() -> str:
+    """Which catalogued API categories external_api may classify.
+
+    external_api only recognises database types and reflection. Everything else
+    out-of-repo classifies as nothing and gets NO CALLS_EXTERNAL edge — so on the
+    measured repo 97.9% of external calls (2.09M of 2.14M) are invisible, and that
+    includes every `request.getParameter` in a servlet app. No taint analysis can
+    work against a graph with no sources in it.
+
+    Letting external_api fall back to the vulnerability catalog fixes that. It is
+    gated because the cost is EDGES, not nodes: External nodes are shared and
+    keyed owner#method, but a catalogued high-volume API (PrintWriter.print,
+    String.format) turns into one edge per call site.
+
+        off           no catalog consultation — pre-catalog behaviour
+        recommended   (default) every category except format-string / log-injection
+        all           every catalogued category
+        <list>        explicit comma-separated categories, e.g.
+                      "CWE-20/untrusted-input,CWE-78/command-injection"
+
+    Defaults to `recommended`. An earlier version defaulted to `off` to keep a
+    clean baseline, which was the wrong call: run c1d0c433 already IS that
+    baseline, so shipping it off only meant the next run would exercise none of
+    this. Set it to `off` explicitly if you need a strict before/after.
+    """
+    return os.environ.get("GRAPH_CATALOG_EXTERNAL", "recommended").strip()
+
+
 def polymorphic_dispatch_enabled() -> bool:
     """Materialize caller -> every-override CALLS edges in the database.
 
