@@ -66,7 +66,8 @@ def find_hubs(store, repo: str, min_callers: int = DEFAULT_HUB_CALLERS) -> list[
 def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
                max_depth: int = DEFAULT_MAX_DEPTH, limit: int = 2000,
                hub_ids: list[str] | None = None,
-               min_depth: int = 0) -> list[dict]:
+               min_depth: int = 0,
+               from_taint_source: bool = False) -> list[dict]:
     """Entry-point -> sink paths within the universe.
 
     Anchored at BOTH ends — starts at a `from_entry` function, ends at one with a
@@ -77,6 +78,19 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
     `limit` is applied in Cypher and reported by the caller when hit: a truncated
     path set that looks complete is the failure mode this whole module is trying to
     avoid.
+
+    ``from_taint_source`` narrows the start of every path from "reachable from an
+    entry point" to "actually reads untrusted data". `from_entry` is a PROPAGATED
+    mark -- 106,216 functions on the measured repo -- so without this a path may
+    begin at any function downstream of an entry, whether or not tainted data
+    enters there. `taint_source` is set at ingest only where the catalog matched
+    a real source (request.getParameter, ResultSet.getString): 6,671 functions,
+    16x tighter, and it is the actual taint question.
+
+    Nothing is lost by narrowing. A helper that receives tainted data as a
+    PARAMETER is still covered, because the path begins at the servlet that read
+    it and passes through the helper -- only paths whose origin never touched
+    untrusted input disappear, and those were never taint findings.
 
     ``min_depth`` is part of the PATTERN, not a filter on the results, and that
     distinction is the whole point. Results are ordered by hops ascending, so on a
@@ -105,9 +119,10 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
     from .reach import DANGEROUS_KINDS
     sink_kinds = sink_kinds or DANGEROUS_KINDS
     kinds_clause = "AND x.kind IN $kinds" if sink_kinds else ""
+    taint_clause = ", taint_source: true" if from_taint_source else ""
     rows = store.read(
         f"""
-        MATCH (entry:Function {{repo: $repo, from_entry: true}})
+        MATCH (entry:Function {{repo: $repo, from_entry: true{taint_clause}}})
         MATCH p = (entry)-[:CALLS*{int(min_depth)}..{int(max_depth)}]->(sink:Function)
         WHERE sink.reaches_sink = true
           AND {_TRUSTED_ALL}
@@ -149,8 +164,10 @@ def sink_paths(store, repo: str, sink_kinds: list[str] | None = None,
             "Narrow sink_kinds or lower max_depth rather than treating this as full "
             "coverage.", limit,
         )
-    _log.info("[paths] %s path(s), depth %s..%s, in %.1fs",
-              len(out), min_depth, max_depth, time.monotonic() - t0)
+    _log.info("[paths] %s path(s), depth %s..%s, entries=%s, in %.1fs",
+              len(out), min_depth, max_depth,
+              "taint_source" if from_taint_source else "from_entry",
+              time.monotonic() - t0)
     return out
 
 

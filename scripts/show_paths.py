@@ -121,6 +121,12 @@ def main() -> None:
                     help="minimum path length, enforced IN the query. Use 1 to "
                          "skip the 0-hop JSP hits that otherwise consume the "
                          "whole limit before any chain is reached.")
+    ap.add_argument("--any-entry", action="store_true",
+                    help="start paths at ANY function reachable from an entry "
+                         "point (106k on the measured repo) instead of only "
+                         "those that actually read untrusted data (6.7k). "
+                         "Broader and much noisier; the default is the real "
+                         "taint question.")
     ap.add_argument("--limit", type=int, default=2000)
     ap.add_argument("--show", type=int, default=10)
     a = ap.parse_args()
@@ -139,6 +145,12 @@ def main() -> None:
             print("  Empty -- run scripts/run_reachability.py first.")
             return
 
+        srcs = store.read(
+            "MATCH (f:Function {repo: $repo}) WHERE f.taint_source = true "
+            "RETURN count(f) AS n", repo=a.repo)
+        print(f"taint sources: {(srcs[0]['n'] if srcs else 0):,}"
+              f"   (paths start here unless --any-entry)")
+
         hubs = paths.find_hubs(store, a.repo)
         print(f"hubs excluded: {len(hubs):,}")
 
@@ -146,7 +158,8 @@ def main() -> None:
         # ascending, so a post-filter just discards everything the limit already
         # spent itself on.
         kw = dict(repo=a.repo, sink_kinds=a.kinds, limit=a.limit,
-                  hub_ids=[h["id"] for h in hubs], min_depth=a.min_hops)
+                  hub_ids=[h["id"] for h in hubs], min_depth=a.min_hops,
+                  from_taint_source=not a.any_entry)
         if a.max_depth is not None:
             kw["max_depth"] = a.max_depth
         rows = paths.sink_paths(store, **kw)
