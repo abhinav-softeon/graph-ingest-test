@@ -33,6 +33,7 @@ class RecordingStore:
         self.nodes: dict = {}
         self.edges: dict = {}
         self.queries: list = []
+        self.taint_marks: dict = {}
 
     def bootstrap(self):
         pass
@@ -44,6 +45,15 @@ class RecordingStore:
 
     def delete_files(self, repo, files):
         pass
+
+    def set_taint_marks(self, repo, rows, batch=1000):
+        """Records rather than no-ops: these are the only marking a JSP page
+        ever gets (no class file exists for one), so a fake that silently
+        dropped them would let that path rot untested."""
+        with self._lock:
+            for r in rows:
+                self.taint_marks[r["id"]] = r
+        return len(rows)
 
     def write_nodes(self, nodes, on_batch=None):
         with self._lock:

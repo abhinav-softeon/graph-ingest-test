@@ -970,6 +970,9 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
                     keep.append(e.to_slim())
             return keep
 
+    # Filled in place by resolve() for the non-bytecode path (JSP above all,
+    # which never has a class file). Applied to Neo4j after resolve returns.
+    _resolver_taint_marks: dict = {}
     _beat("resolving", "building lookup indices")
     # A parallel-resolve branch (GRAPH_RESOLVE_WORKERS > 1, resolver_parallel.py)
     # was selected here. It required `resolve_sink is None`, but the streaming
@@ -995,6 +998,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
                 (bytecode_owns | (javac_report.attributed_files if javac_owns_java else set()))
                 or None
             ),
+            taint_marks=_resolver_taint_marks,
         )
     finally:
         # Drain and stop the background writer before anything that assumes the
@@ -1005,6 +1009,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
     if stream_writer and writer_failure:
         raise writer_failure[0]
     del resolve_nodes  # just an alias for all_nodes now; drop the extra name
+    _persist_resolver_taint_marks(store, repo, _resolver_taint_marks)
     _accepted_extra = _extend_unique(extra_nodes, 'resolve')
     if stream_nodes:
         # The filtered list, not extra_nodes — see _extend_unique's docstring.
@@ -1437,6 +1442,41 @@ def _derive_overrides(
                         ))
             stack.extend(supers.get(anc, []))
     return out
+
+
+def _persist_resolver_taint_marks(store, repo: str, marks: dict) -> None:
+    """Write the non-bytecode path's taint marks straight to Neo4j.
+
+    Written here rather than onto the node objects because by this point
+    all_nodes is the SlimNode projection, which has no taint fields, and the
+    pre-resolve node write has already happened — so the nodes exist in the
+    database and a property update is both possible and cheaper than a rewrite.
+
+    MATCH, not MERGE: every id here came from a ref's `src`, which is an
+    extracted function that was written pre-resolve. A miss means a real
+    inconsistency, and silently creating a bare node would hide it.
+
+    Batching lives in store.set_taint_marks, alongside the other batched writes,
+    rather than here — this only shapes the rows.
+    """
+    if not marks:
+        return
+    rows = []
+    for fid, m in marks.items():
+        rows.append({
+            "id": fid,
+            # Sorted so an unchanged re-ingest produces an identical value —
+            # an unstable list makes every node look modified.
+            "cats": sorted(m["cats"]),
+            "src": bool(m["src"]),
+            "sites": json.dumps(
+                [{"line": ln, "cat": cat, "role": role, "args": list(args)}
+                 for ln, cat, role, args in sorted(m["sites"])],
+                separators=(",", ":"),
+            ) if m["sites"] else "",
+        })
+    written = store.set_taint_marks(repo, rows)
+    marks.clear()
 
 
 def _apply_taint_marks(nodes: list, report, repo: str) -> None:

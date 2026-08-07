@@ -178,6 +178,38 @@ class GraphStore:
                         in_flight[pool.submit(_run_one, q, rows)] = None
         return written
 
+    def set_taint_marks(self, repo: str, rows: list[dict], batch: int = 1000):
+        """Stamp taint properties onto Function nodes that already exist.
+
+        A property UPDATE, not a write: these come from the heuristic resolve
+        path, which runs after the pre-resolve node write, and by then the
+        in-memory nodes are the SlimNode projection with no taint fields on them.
+        The rows are {id, cats, src, sites}.
+
+        MATCH rather than MERGE on purpose. Every id here is a ref's `src` — an
+        extracted function already persisted — so a miss is a real inconsistency
+        and MERGE would paper over it by creating a bare, label-only node.
+
+        Returns the number of rows sent.
+        """
+        if not rows:
+            return 0
+        sent = 0
+        for i in range(0, len(rows), batch):
+            chunk = rows[i:i + batch]
+            self._run(
+                """
+                UNWIND $rows AS row
+                MATCH (f:Function {id: row.id, repo: $repo})
+                SET f.taint_categories = row.cats,
+                    f.taint_source = row.src,
+                    f.taint_sites = row.sites
+                """,
+                rows=chunk, repo=repo,
+            )
+            sent += len(chunk)
+        return sent
+
     def write_nodes(self, nodes: list[Node], on_batch=None):
         """``on_batch(written, total)``: optional per-batch callback. A
         multi-hundred-thousand-node write is one of the longest operations in

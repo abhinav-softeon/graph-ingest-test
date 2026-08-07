@@ -30,6 +30,7 @@ from .apispec import (
 )
 from .checkpoint import load_resolve_checkpoint, save_resolve_checkpoint
 from .config import resolve_checkpoint_seconds
+from .catalog import classify_taint
 from .external_api import (
     classify_call, external_display, external_id, external_key,
 )
@@ -78,6 +79,7 @@ def resolve(
     checkpoint_root: str | None = None,
     edge_sink: "Callable[[list[Node], list[Edge]], list] | None" = None,
     skip_call_files: set[str] | None = None,
+    taint_marks: dict | None = None,
 ):
     """Return (extra_nodes, edges, coverage_by_reftype).
 
@@ -92,6 +94,16 @@ def resolve(
     would end up with no call graph at all. Per-file makes partial coverage
     degrade gracefully instead of falling off a threshold. Every other ref type
     in those files still resolves here — only CALLS is handed over.
+
+    ``taint_marks``: optional dict, FILLED IN PLACE with
+    {caller_id: {"cats": set, "src": bool, "sites": [...]}} for catalogued
+    source/sink calls on the external path. An out-param rather than a fourth
+    return value so every existing caller and test keeps unpacking three.
+
+    It cannot be applied to the nodes here: by the time resolve() runs they are
+    already the SlimNode projection (pipeline converts them right after the
+    pre-resolve write), and SlimNode has no taint fields. The pipeline writes
+    these straight to Neo4j instead, where the nodes already exist.
 
     `edges` is the structural edge list from extraction (CONTAINS), used to
     build the containment scope that powers scope-aware call resolution.
@@ -943,6 +955,35 @@ def resolve(
                 # only. The bytecode path, which has descriptors, additionally
                 # catches acquires by return type — see external_api.
                 kind = classify_call(ref.recv_type, ref.target_name)
+                # Taint marking for the NON-BYTECODE path. The bytecode resolver
+                # does this for Java with class files; this is the same fact for
+                # everything else, and "everything else" is not an edge case:
+                # .jsp is compiled by the servlet container at RUNTIME, so a JSP
+                # page never has a class file and its sinks are invisible without
+                # this — and on the measured repo 18 of 20 CALLS_EXTERNAL edges
+                # came from .jsp files.
+                #
+                # Weaker than the bytecode path by construction: recv_type is a
+                # SIMPLE name (java.py stores types via simple_type_name), so the
+                # lookup goes through JAVA_BY_SIMPLE_NAME, which deliberately
+                # excludes names that map to more than one catalogued owner. An
+                # ambiguous simple name matches nothing rather than guessing.
+                if taint_marks is not None and ref.src:
+                    _thit = classify_taint(ref.recv_type, ref.target_name)
+                    if _thit is not None:
+                        _tentry, _targs = _thit
+                        _m = taint_marks.get(ref.src)
+                        if _m is None:
+                            _m = {"cats": set(), "src": False, "sites": []}
+                            taint_marks[ref.src] = _m
+                        if _tentry.role == "source":
+                            _m["src"] = True
+                        elif _tentry.role == "sink":
+                            _m["cats"].add(_tentry.category)
+                        if ref.ref_line:
+                            _m["sites"].append(
+                                (ref.ref_line, _tentry.category, _tentry.role,
+                                 _targs))
                 if kind:
                     eid = external_id(ref.recv_type, ref.target_name)
                     if eid not in external_ids:
