@@ -29,6 +29,9 @@ available because bytecode carries the descriptor.
 """
 from __future__ import annotations
 
+from functools import lru_cache
+
+from .catalog import classify_taint as _classify_taint
 from .ids import make_id
 
 # Kinds. Deliberately coarse: the graph's job is to find candidates, the LLM's
@@ -210,8 +213,12 @@ def _reset_enabled_categories() -> None:
     """Drop the cached setting. For tests that change the environment."""
     global _ENABLED_CATEGORIES
     _ENABLED_CATEGORIES = None
+    # The category filter is baked into this cache's values, so it MUST be
+    # dropped with the setting or a test would read the previous run's answers.
+    _classify_catalogued.cache_clear()
 
 
+@lru_cache(maxsize=None)
 def _classify_catalogued(owner: str, method: str) -> str:
     """Taint kind from the vulnerability catalog, or '' when not catalogued.
 
@@ -221,8 +228,7 @@ def _classify_catalogued(owner: str, method: str) -> str:
     enabled = _enabled_categories()
     if not enabled:
         return ""
-    from .catalog import classify_taint
-    hit = classify_taint(owner, method)
+    hit = _classify_taint(owner, method)
     if hit is None:
         return ""
     entry, _args = hit

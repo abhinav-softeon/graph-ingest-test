@@ -132,6 +132,23 @@ def mark_reaches_sink(store, repo: str, kinds: list[str] | None = None,
             repo=repo, sinks=SUMMARY_SINKS,
         )
 
+    # Seed 3 — the catalog's own ingest-time marking. Seed 1 above only sees a
+    # function whose sink produced a CALLS_EXTERNAL EDGE; this sees every
+    # function the catalog recognised a sink in, including the heuristic/JSP path
+    # where marks are written straight to the node. Deterministic, so unlike
+    # Seed 2 it does not depend on a model having read the function.
+    catalog_seeds = _count(
+        store,
+        """
+        MATCH (f:Function {repo: $repo})
+        WHERE f.taint_categories IS NOT NULL AND size(f.taint_categories) > 0
+          AND f.reaches_sink IS NULL
+        SET f.reaches_sink = true
+        RETURN count(f) AS n
+        """,
+        repo=repo,
+    )
+
     # Fixpoint: one hop backward per iteration until nothing new is marked.
     iterations, total_propagated = 0, 0
     while iterations < _MAX_ITERATIONS:
@@ -162,6 +179,7 @@ def mark_reaches_sink(store, repo: str, kinds: list[str] | None = None,
         repo=repo,
     )
     out = {"graph_seeds": graph_seeds, "summary_seeds": summary_seeds,
+           "catalog_seeds": catalog_seeds,
            "propagated": total_propagated, "total_marked": marked,
            "iterations": iterations, "seconds": round(time.monotonic() - t0, 2)}
     _log.info("[reach] reaches_sink: %s", out)
@@ -298,7 +316,29 @@ def mark_from_entry(store, repo: str, annotations: list[str] | None = None) -> d
         repo=repo,
     )
 
-    # Seed 4 — what Pass A read in the code. UNION with the three structural seeds
+    # Seed 4 — the DETERMINISTIC entry surface: any function that pulls in
+    # untrusted data is, by definition, where untrusted data enters.
+    #
+    # This is the seed a legacy servlet app actually needs. Its entry points are
+    # `service()` / `doGet()` on HttpServlet subclasses, which carry no
+    # annotation, expose no resolved route, and are not JSPs — so all three
+    # structural seeds above return nothing for them. Measured: the graph holds
+    # 16 Annotation nodes in total, against 93k HttpServletRequest calls.
+    #
+    # Set at INGEST from the vulnerability catalog (Node.taint_source), so unlike
+    # the Pass A seed below it needs no model and no summary to be fresh.
+    catalog_entry = _count(
+        store,
+        """
+        MATCH (f:Function {repo: $repo})
+        WHERE f.taint_source = true AND f.from_entry IS NULL
+        SET f.from_entry = true
+        RETURN count(f) AS n
+        """,
+        repo=repo,
+    )
+
+    # Seed 5 — what Pass A read in the code. UNION with the three structural seeds
     # above, never an intersection: the model can only ADD entry points here, so a
     # false negative costs nothing that the annotations did not already cover, while
     # a true positive rescues a repo whose entry convention is not in
@@ -317,12 +357,14 @@ def mark_from_entry(store, repo: str, annotations: list[str] | None = None) -> d
         repo=repo,
     )
 
-    seeds = annotated + exposed + jsp + llm
+    seeds = annotated + exposed + jsp + catalog_entry + llm
     if seeds == 0:
         _log.warning(
             "[reach] NO ENTRY POINTS FOUND — the forward pass has nothing to walk "
-            "from and the universe will be empty. Check that ANNOTATED_WITH edges "
-            "exist and that this repo's entry annotations are in ENTRY_ANNOTATIONS."
+            "from and the universe will be empty. Check ANNOTATED_WITH edges and "
+            "ENTRY_ANNOTATIONS; and if this is a servlet app, check that ingest "
+            "wrote Function.taint_source (needs GRAPH_CATALOG_EXTERNAL on and a "
+            "cache free of pre-taint-field Node pickles)."
         )
 
     iterations, total_propagated = 0, 0
@@ -358,6 +400,7 @@ def mark_from_entry(store, repo: str, annotations: list[str] | None = None) -> d
     # convention is missing from ENTRY_ANNOTATIONS and should be added there, where
     # it costs nothing, rather than left to the model to rediscover every run.
     out = {"annotated_seeds": annotated, "endpoint_seeds": exposed, "jsp_seeds": jsp,
+           "catalog_entry_seeds": catalog_entry,
            "llm_seeds": llm,
            "propagated": total_propagated, "total_marked": marked,
            "iterations": iterations, "seconds": round(time.monotonic() - t0, 2)}
@@ -392,8 +435,19 @@ def universe(store, repo: str) -> dict:
 
 
 def mark_all(store, repo: str, kinds: list[str] | None = None) -> dict:
-    """clear -> backward -> forward -> report. The whole pre-Pass-B step."""
+    """clear -> backward -> kinds -> forward -> report. The whole pre-Pass-B step.
+
+    NOTE ON WHEN THIS RUNS: this is the ANALYSIS step, invoked from
+    analysis/pipeline.py during a REVIEW — not during a graph build. So a
+    freshly built graph has `taint_source`/`taint_categories` (written at ingest)
+    but NO `from_entry`/`reaches_sink`, and the universe is legitimately 0 until
+    a review runs. That is not a broken build; it is two different sets of marks.
+    """
     clear_marks(store, repo)
     sink = mark_reaches_sink(store, repo, kinds)
+    # After the boolean pass, which is what seeds it: a function only gets kinds
+    # once Seed 1 has recorded its direct sink_kinds.
+    kinds_out = mark_reaches_sink_kinds(store, repo)
     entry = mark_from_entry(store, repo)
-    return {"reaches_sink": sink, "from_entry": entry, "universe": universe(store, repo)}
+    return {"reaches_sink": sink, "reaches_sink_kinds": kinds_out,
+            "from_entry": entry, "universe": universe(store, repo)}

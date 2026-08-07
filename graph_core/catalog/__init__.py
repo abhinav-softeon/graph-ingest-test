@@ -49,6 +49,7 @@ from the expensive path to the cheap one. It is meant to be appended to.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from . import findsecbugs_java as _fsb
 
@@ -409,6 +410,17 @@ def classify_propagator(owner: str, method: str) -> tuple[int, ...] | None:
     return table.get(method.lower())
 
 
+# Memoised because this is a HOT PATH and its key space is tiny relative to its
+# call count: one measured run made 3.8M invocations across just 26,003 distinct
+# owner#method pairs, a ~99.3% hit rate. Uncached it cost ~700s across the
+# bytecode and resolve stages — `rsplit` and `.lower()` allocate on every call,
+# and the common case (owner not catalogued) always takes the slow path.
+#
+# Safe to cache unbounded: the catalog is immutable after import, and the key
+# space is bounded by the APIs a codebase actually calls, not by call volume.
+# Deliberately NOT dependent on the enabled-category setting — that filter is
+# applied by the caller, so this stays a pure function of the catalog.
+@lru_cache(maxsize=None)
 def classify_taint(owner: str, method: str) -> tuple[Entry, tuple[int, ...]] | None:
     """Return (entry, argument_positions) for a catalogued API, else None.
 
@@ -418,7 +430,7 @@ def classify_taint(owner: str, method: str) -> tuple[Entry, tuple[int, ...]] | N
     """
     if not owner or not method:
         return None
-    entry = JAVA.get(owner) or JAVA_BY_SIMPLE_NAME.get(owner.rsplit(".", 1)[-1])
+    entry = JAVA.get(owner) or JAVA_BY_SIMPLE_NAME.get(owner.rpartition(".")[2])
     if entry is None:
         return None
     args = entry.methods.get(method.lower())
