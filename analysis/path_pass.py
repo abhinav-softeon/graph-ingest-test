@@ -26,17 +26,41 @@ cache_read_tokens on a real run, since unlike Pass A there is genuine reuse.
 """
 from __future__ import annotations
 
+import os
+
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from . import config, contract, store as astore
-from .pass_c import read_body
+from . import priority
 from .llm import get_client
 from sail_core.logger.logger import get_logger
 
 _log = get_logger(__name__)
+
+
+def read_body(root: str, relpath: str, start: int, end: int) -> str | None:
+    """Exact source span for a function, line-numbered.
+
+    Moved here from the old source-expansion stage when that stage was deleted:
+    this pass reads real source for every path rather than only for the ones a
+    summary-based judge got stuck on, so the fetch belongs to the pass that does
+    it. Positions come from tree-sitter and are exact, so this slices precisely
+    rather than guessing at boundaries.
+    """
+    path = os.path.join(root, (relpath or "").replace("/", os.sep))
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError as exc:
+        _log.warning("[path_pass] unreadable %s: %s", relpath, exc)
+        return None
+    s = max(1, int(start or 1))
+    e = min(len(lines), int(end or s))
+    return "".join(f"{i:>5} | {lines[i - 1]}" for i in range(s, e + 1))
+
 
 SYSTEM = """\
 You judge whether a call path in a codebase contains a real defect.
@@ -221,8 +245,6 @@ def _render_path(index: int, path: dict, summaries: dict[str, dict],
             f"      params: {params}\n"
             f"      returns: {s.get('returns', '')}\n"
             + (f"      flags: {', '.join(flags)}\n" if flags else "")
-            + (f"      UNCERTAIN: {'; '.join(s.get('uncertain') or [])}\n"
-               if s.get("uncertain") else "")
             # Findings an earlier pass already reported for THIS frame. Shown so the
             # model does not re-report them: a duplicate is not a second finding, it
             # is the same one paying for adjudication again and being dropped at the
@@ -271,7 +293,7 @@ def fetch_bodies(store, repo: str, root: str, rows: list[dict]) -> dict[str, str
         body = read_body(root, m["file"], m["s"], m["e"])
         if body:
             out[m["id"]] = body
-    _log.info("[pass_b] source mode=%s — fetched %s of %s requested bodie(s)",
+    _log.info("[path_pass] source mode=%s — fetched %s of %s requested bodie(s)",
               mode, len(out), len(wanted))
     return out
 
@@ -300,13 +322,13 @@ def _judge_batch(client, batch: list[dict], summaries: dict[str, dict],
         res = client.complete(SYSTEM, user, schema=contract.PATH_VERDICT_SCHEMA)
         results.append(res)
         if not res.ok or res.parsed is None:
-            _log.warning("[pass_b] batch call failed (attempt %s): %s",
+            _log.warning("[path_pass] batch call failed (attempt %s): %s",
                          attempt, res.error or "no JSON")
             continue
         try:
             verdicts = contract.validate_verdicts(res.parsed, len(rendered))
         except contract.ValidationError as exc:
-            _log.warning("[pass_b] batch failed validation (attempt %s): %s", attempt, exc)
+            _log.warning("[path_pass] batch failed validation (attempt %s): %s", attempt, exc)
             continue
         # Re-attach the path each verdict refers to, so callers never have to
         # re-derive the mapping from an index.
@@ -316,7 +338,7 @@ def _judge_batch(client, batch: list[dict], summaries: dict[str, dict],
     return [], results, skipped
 
 
-def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
+def run_path_pass(store, repo: str, path_rows: list[dict], per_batch: int = 3,
                prior_findings: list[dict] | None = None,
                root: str | None = None,
                model: str | None = None) -> PassBReport:
@@ -334,7 +356,7 @@ def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
 
     if not path_rows:
         rep.seconds = time.monotonic() - t0
-        _log.info("[pass_b] no paths supplied — nothing to judge")
+        _log.info("[path_pass] no paths supplied — nothing to judge")
         return rep
 
     all_ids = sorted({i for row in path_rows for i in (row.get("ids") or [])})
@@ -342,7 +364,7 @@ def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
     missing = len(all_ids) - len(summaries)
     if missing:
         _log.warning(
-            "[pass_b] %s of %s functions on these paths have no fresh summary — "
+            "[path_pass] %s of %s functions on these paths have no fresh summary — "
             "those paths are skipped, not guessed. Run Pass A to close the gap.",
             missing, len(all_ids),
         )
@@ -363,8 +385,8 @@ def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
         rep.seconds = time.monotonic() - t0
         return rep
 
-    client = get_client(model, pass_name="pass_b")
-    _log.info("[pass_b] %s path(s) in %s batch(es); model=%s",
+    client = get_client(model, pass_name="path_pass")
+    _log.info("[path_pass] %s path(s) in %s batch(es); model=%s",
               len(path_rows), len(batches), model)
 
     with ThreadPoolExecutor(max_workers=config.llm_workers()) as pool:
@@ -374,7 +396,7 @@ def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
             try:
                 verdicts, results, skipped = fut.result()
             except Exception as exc:  # noqa: BLE001
-                _log.warning("[pass_b] batch raised: %s", exc)
+                _log.warning("[path_pass] batch raised: %s", exc)
                 rep.errors.append(str(exc))
                 continue
             rep.calls_made += len(results)
@@ -405,7 +427,7 @@ def run_pass_b(store, repo: str, path_rows: list[dict], per_batch: int = 3,
                     rep.findings.append(_to_finding(v))
 
     rep.seconds = time.monotonic() - t0
-    _log.info("[pass_b] done: %s", rep.summary())
+    _log.info("[path_pass] done: %s", rep.summary())
     return rep
 
 
@@ -414,7 +436,11 @@ def _to_finding(verdict: dict) -> dict:
     path = verdict.pop("_path", {}) or {}
     return {
         "kind": verdict.get("kind"),
-        "severity": verdict.get("severity"),
+        # Derived, not echoed: the verdict carries certainty + impact and the
+        # table decides. Everything downstream still reads `severity`.
+        "certainty": verdict.get("certainty"),
+        "impact": verdict.get("impact"),
+        "severity": priority.severity(verdict.get("certainty"), verdict.get("impact")),
         # Both flags travel with the finding: Pass C re-judges on them and Pass D
         # picks its lenses from them, so collapsing them here would just move the
         # same information loss one stage later.

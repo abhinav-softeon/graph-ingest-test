@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import os
 
+from ..apispec import split_url
 from ..discovery import FileInfo
 from ..ids import body_hash, make_id
 from ..models import Edge, Node, Origin, RawRef
 from ..languages import get_parser
 from .common import simple_type_name, text
+from .java import SERVLET_ANY_METHOD
 
 EXTRACTOR = "tree-sitter"
 
@@ -180,6 +182,92 @@ def _complexity_counts(body) -> tuple[int, int]:
                 branch += 1
         stack.extend(n.children)
     return branch, loop
+
+
+def _scope_strings(src: bytes, body):
+    """(text, node) for each string literal in this function's own scope.
+
+    Mirrors _scope_calls, including its _SCOPE_BOUNDARY stop, so a literal is
+    attributed to the function that actually contains it.
+
+    Why literals and not call syntax: the three ways this codebase's JS names a
+    Java target have nothing syntactic in common —
+
+        new AjaxCallBackHandler('com.acme.Handler', cb, params)   // new_expression
+        var url = WEB_APP + "/servlets/a/b/FooServlet?x=" + y     // binary_expression
+        action = BASE_SERVLET_URL + "BarServlet"; submit();       // assignment
+
+    — but all three put the target in a string. Matching the string is one rule
+    instead of three fragile syntactic ones, and it survives the next spelling.
+    """
+    out = []
+    if body is None:
+        return out
+    stack = list(body.children)
+    while stack:
+        n = stack.pop()
+        if n.type in _SCOPE_BOUNDARY:
+            continue
+        if n.type in ("string", "template_string"):
+            raw = text(src, n).strip()
+            if len(raw) >= 2 and raw[0] in "\"'`" and raw[-1] == raw[0]:
+                raw = raw[1:-1]
+            if raw:
+                out.append((raw, n))
+            continue          # a string has no nested code worth walking
+        stack.extend(n.children)
+    return out
+
+
+def _servlet_url(literal: str) -> str:
+    """The `/servlets/...` path inside a JS string, or '' if there is none.
+
+    Returned as a path with the query dropped, so it lands on exactly the value
+    `@WebServlet("/servlets/a/b/Foo")` produced — the two are byte-identical in
+    this codebase, which is what makes the JS -> Java hop an exact match rather
+    than a heuristic. Only the segment from `/servlets/` onward is kept, since
+    the literal is usually the tail of `CONTEXT_PATH + "/servlets/..."`.
+    """
+    idx = literal.find("/servlets/")
+    if idx < 0:
+        return ""
+    path = literal[idx:].split("?", 1)[0].split("#", 1)[0].strip()
+    # A concatenation break can leave a dangling operator or quote on the end.
+    path = path.rstrip("\"'+ \t")
+    if len(path) <= len("/servlets/") or any(ch in path for ch in " \t<>"):
+        return ""
+    return path
+
+
+def _java_class_target(literal: str) -> str:
+    """A Java class this JS string names directly, or ''.
+
+    Two accepted shapes, both observed in the same file:
+
+      * a fully-qualified handler, `com.acme.scm.adhoc.ajax.AdhocQueryAJAXHandler`
+        — dotted, and the last segment is a type name. This is the strongest
+        cross-language signal in the codebase: it is the class, spelled out, with
+        no URL or convention in between.
+      * a bare servlet class, `AdhocQueryServlet`, which appears as a form action
+        whose package comes from a JS constant. The `Servlet` suffix is required
+        precisely because a bare capitalised word is otherwise just a word.
+
+    Anything else returns '' — including dotted strings with a lower-case tail
+    (`com.acme.some.property`), which are config keys, not classes.
+    """
+    s = literal.strip()
+    if not s or any(ch in s for ch in " \t/\\<>?&=%(){}[]"):
+        return ""
+    if "." in s:
+        segments = s.split(".")
+        tail = segments[-1]
+        if (len(segments) >= 3 and tail[:1].isupper()
+                and all(seg.isidentifier() for seg in segments)):
+            return s
+        return ""
+    if s.isidentifier() and s[:1].isupper() and s.endswith("Servlet"):
+        return s
+    return ""
 
 
 def _scope_calls(body):
@@ -608,6 +696,33 @@ def extract(file: FileInfo, repo: str):
                         recv=_receiver(src, fn), call_arity=arity,
                         recv_type=_callee_receiver_type(
                             src, fn, var_types, field_types or {}, class_name))
+            # The JS -> Java hop. A servlet URL resolves through the existing
+            # Endpoint machinery (apispec + resolver.match_endpoints); a named
+            # class resolves straight to the Class node. Deduped per function so a
+            # URL rebuilt in three branches is one edge, not three.
+            seen_targets: set = set()
+            for literal, lit_node in _scope_strings(src, body):
+                url = _servlet_url(literal)
+                if url:
+                    if ("api", url) not in seen_targets:
+                        seen_targets.add(("api", url))
+                        host, path = split_url(url)
+                        refs.append(RawRef(
+                            "CALLS_API", mid, path, "api", recv=host,
+                            # The verb is genuinely unknown here — the same URL is
+                            # hit by GET and by form POST. ANY is what @WebServlet
+                            # registers, so this matches instead of guessing GET
+                            # and missing every POST.
+                            http_method=SERVLET_ANY_METHOD,
+                            ref_file=file.relpath,
+                            ref_line=lit_node.start_point[0] + 1,
+                            ref_col=lit_node.start_point[1],
+                        ))
+                    continue
+                cls = _java_class_target(literal)
+                if cls and ("class", cls) not in seen_targets:
+                    seen_targets.add(("class", cls))
+                    ref("HANDLED_BY", mid, cls, "type", lit_node)
             # nested named functions/classes declared inside this body
             _walk_container(body, fqn, mid)
         return mid

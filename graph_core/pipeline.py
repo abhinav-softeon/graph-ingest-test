@@ -17,7 +17,10 @@ import psutil
 
 from . import extractors
 from .canonical_ir import CanonicalBundle, from_extractor, merge_bundles
-from .cypher_derive_reference import synthesize_polymorphic_calls_cypher
+from .cypher_derive_reference import (
+    mark_inrepo_acquires_cypher,
+    synthesize_polymorphic_calls_cypher,
+)
 from .checkpoint import RefStream, batch_exists, clear_checkpoint, init_manifest, load_batch, save_batch
 from .config import checkpoint_root as get_checkpoint_root
 from .config import (
@@ -1268,6 +1271,7 @@ def index_repo(root: str, repo: str, store: GraphStore, wipe: bool = True,
         repo, len(new_edges),
     )
     n_poly = _run_polymorphic_cypher(store, repo, edge_stats, _beat)
+    _run_inrepo_acquires(store, repo, edge_stats, _beat)
     _beat("writing_graph", "validating graph")
     validation = validate_graph(all_nodes, edge_stats)
     _mark("writing_graph")
@@ -1337,6 +1341,38 @@ def _run_polymorphic_cypher(store, repo: str, edge_stats, _beat) -> int:
     edge_stats.add_count("CALLS", n)
     _log.info(
         "[graph_ingest][repo=%s] polymorphic dispatch: %s synthetic CALLS edge(s) created in-database",
+        repo, n,
+    )
+    return n
+
+
+def _run_inrepo_acquires(store, repo: str, edge_stats, _beat) -> int:
+    """Mark in-repo connection factories as db_acquire, in-database.
+
+    Closes the hole where a pool wrapper produced no database fact at all unless
+    the bytecode resolver happened to cover its callers — see
+    cypher_derive_reference.mark_inrepo_acquires_cypher for the measured numbers.
+
+    NON-FATAL, for the same reason as the polymorphic pass above: this is
+    enrichment layered onto a graph that is already complete and durable. An
+    exception here says nothing about the validity of what was written, and
+    letting it propagate is what once caused a finished graph to be wiped.
+    """
+    _beat("writing_graph", "marking in-repo connection acquires (in-database)")
+    try:
+        n = mark_inrepo_acquires_cypher(store, repo)
+    except Exception as exc:  # noqa: BLE001 - deliberately non-fatal, see above
+        _log.warning(
+            "[graph_ingest][repo=%s] in-repo acquire marking FAILED (%s) — "
+            "continuing; DB facts fall back to whatever the bytecode/heuristic "
+            "paths produced", repo, exc,
+        )
+        return 0
+    if n:
+        edge_stats.add_count("CALLS_EXTERNAL", n)
+    _log.info(
+        "[graph_ingest][repo=%s] in-repo acquires: %s db_acquire edge(s) created "
+        "in-database (methods returning a Connection/Session/EntityManager)",
         repo, n,
     )
     return n

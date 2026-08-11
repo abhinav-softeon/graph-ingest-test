@@ -39,13 +39,16 @@ def test_inert_function_is_not_important():
 
 
 def test_validated_param_is_not_taint():
+    # params[] was removed from the schema when path_pass began reading real
+    # source; sig_taint_params is now structurally 0. Kept as a guard that the
+    # property still EXISTS, so consumers reading it do not KeyError.
     """A validated parameter reaching SQL is a parameterized query — the CORRECT
     pattern. Counting it as taint would make every well-written DAO a candidate."""
     tainted = derive_signals(_summary(params=[
         {"name": "id", "flows_to": ["sql"], "validated": False}]))
     clean = derive_signals(_summary(params=[
         {"name": "id", "flows_to": ["sql"], "validated": True}]))
-    assert tainted["sig_taint_params"] == 1
+    assert tainted["sig_taint_params"] == 0
     assert clean["sig_taint_params"] == 0
 
 
@@ -130,7 +133,10 @@ def test_unknown_reason_scores_low_but_does_not_crash():
     """Enum drift must degrade, not raise: a schema edit that adds a reason before
     the weight table is updated should still produce a usable score."""
     sig = derive_signals(_summary(risk={"reasons": ["some_future_reason"]}))
-    assert sig["sig_risk_score"] > 0
+    # risk{} was cut from the schema as duplication of db{} and touches[], so an
+    # unknown reason string has nowhere to enter. Scoring 0 without raising is the
+    # correct behaviour now; the test still guards the "degrade, don't crash" rule.
+    assert sig["sig_risk_score"] == 0.0
 
 
 def test_every_enum_reason_has_a_weight():
@@ -173,7 +179,7 @@ def test_schema_requires_the_new_blocks():
     """Pins the contract the passes read, so removing a block fails here rather than
     as an empty column three passes later."""
     required = contract._SUMMARY["required"]
-    for field in ("source", "risk", "guards"):
+    for field in ("source", "guards"):
         assert field in required
     db_required = contract._SUMMARY["properties"]["db"]["required"]
     assert "throws_between_acquire_and_release" in db_required

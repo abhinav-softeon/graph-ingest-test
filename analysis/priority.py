@@ -62,6 +62,66 @@ RISK_WEIGHTS = {
 # 'field:*' are flows but not sinks, so they are not here.
 _DANGEROUS_FLOWS = {"sql", "exec", "file", "response"}
 
+# SEVERITY, COMPUTED — the model reports certainty and impact, this decides.
+#
+# Read down a column: the same defect drops a level for every step you take away
+# from being able to demonstrate it. That is the "certainty first, then impact"
+# rule the old prompt had to explain in prose, made structural — a model can
+# forget a rubric, a table cannot.
+#
+# `quality` is low at every certainty on purpose. A definitely-slow loop should
+# never outrank a maybe-exploitable injection, so an optimization finding can be
+# reported in full without ever crowding a security report.
+#
+# Tune by moving a cell, then run backfill_signals() — the whole repo re-scores
+# with no model calls. That is the entire reason this is not a model field.
+SEVERITY = {
+    ("demonstrated", "exposure"):    "critical",
+    ("demonstrated", "integrity"):   "high",
+    ("demonstrated", "correctness"): "high",
+    ("demonstrated", "quality"):     "low",
+    ("probable", "exposure"):        "high",
+    # A leak or weakness you cannot demonstrate is a suggestion, not a task.
+    # demonstrated+integrity stays high, so real leaks still surface; this only
+    # moves the ones the model could not show.
+    ("probable", "integrity"):       "medium",
+    ("probable", "correctness"):     "medium",
+    ("probable", "quality"):         "low",
+    ("speculative", "exposure"):     "medium",
+    ("speculative", "integrity"):    "low",
+    # LOW MUST BE REACHABLE WITHOUT `quality`. Measured across 9 files and 34
+    # findings, impact=quality fired ZERO times, so with this cell at "medium"
+    # the low band was structurally unreachable and severity collapsed to three
+    # levels. It is also the more honest reading: "I am inferring this might
+    # behave wrongly" is a suggestion, not a defect. correctness was 56% of all
+    # findings, so this is the axis that actually populates the band.
+    ("speculative", "correctness"):  "low",
+    ("speculative", "quality"):      "low",
+}
+
+
+def severity(certainty: str | None, impact: str | None) -> str:
+    """(certainty, impact) -> critical | high | medium | low.
+
+    Unknown or missing values return 'none' rather than guessing a level. A
+    finding that reaches the report with no severity is visible; one silently
+    defaulted to 'medium' is not, and would quietly inflate every ranking.
+    """
+    key = (str(certainty or "").lower(), str(impact or "").lower())
+    return SEVERITY.get(key, "none")
+
+
+def apply_severity(finding: dict) -> dict:
+    """Stamp a computed `severity` onto a finding, in place.
+
+    Called wherever a finding is built — path_pass, the single-file path, join
+    candidates. Downstream (findings.py's ranking, adversarial_pass's prompt)
+    keeps reading `severity` and never has to know it is derived.
+    """
+    finding["severity"] = severity(finding.get("certainty"), finding.get("impact"))
+    return finding
+
+
 _IMPORTANT_THRESHOLD = 3.0
 
 # Above this share of the repo, `important` is not selecting anything. Reported
@@ -70,23 +130,50 @@ _IMPORTANT_THRESHOLD = 3.0
 _FLAG_RATE_CEILING = 0.30
 
 
+def _bare_names(values) -> list[str]:
+    """['DriverManager.getConnection', 'get()'] -> ['get', 'getconnection'] ... no:
+    -> ['getConnection', 'get']. Strips any receiver prefix and call parens, dedupes,
+    and drops empties. Case is preserved because Function.name is case-sensitive."""
+    out = set()
+    for v in values or []:
+        name = str(v).split("(", 1)[0].rsplit(".", 1)[-1].strip()
+        if name:
+            out.add(name)
+    return sorted(out)
+
+
 def derive_signals(summary: dict) -> dict:
     """Flat scalars for one summary. Pure function — no store, no I/O, easy to test."""
     db = summary.get("db") or {}
     src = summary.get("source") or {}
-    risk = summary.get("risk") or {}
     guards = summary.get("guards") or {}
+    contracts = summary.get("contracts") or {}
 
-    reasons = [r for r in (risk.get("reasons") or []) if r and r != "none"]
+    # risk.reasons is gone from the schema (it duplicated db{} and touches[]).
+    # Reconstructed from the fields that already carried the same facts, so
+    # RISK_WEIGHTS keeps working and the scores stay comparable across versions.
+    touches = {t for t in (summary.get("touches") or []) if t and t != "none"}
+    reasons = []
+    if db.get("sql_is_dynamic"):
+        reasons.append("builds_sql_dynamically")
+    if db.get("acquires"):
+        reasons.append("manual_resource_handling")
+    for t, r in (("exec", "spawns_process"), ("deserialize", "deserialization"),
+                 ("reflection", "reflection"), ("file", "writes_filesystem")):
+        if t in touches:
+            reasons.append(r)
+    if src.get("reads_untrusted"):
+        reasons.append("parses_untrusted_input")
+    if guards.get("authenticates") or guards.get("authorizes"):
+        reasons.append("auth_check")
 
     # A parameter that reaches a sink WITHOUT being validated. Both halves matter:
     # a validated parameter reaching SQL is a parameterized query, which is the
     # correct pattern and must not score.
-    taint_params = sum(
-        1 for p in (summary.get("params") or [])
-        if not p.get("validated")
-        and _DANGEROUS_FLOWS & set(p.get("flows_to") or [])
-    )
+    # params[].flows_to is gone; path_pass reads real source and traces the
+    # parameter itself. Kept at 0 so the score formula and every stored property
+    # keep their shape rather than needing a migration.
+    taint_params = 0
 
     # The exception-path leak. `throws_between_acquire_and_release` deliberately does
     # NOT appear here, and that is the whole subtlety: it is true of any try/finally
@@ -100,9 +187,13 @@ def derive_signals(summary: dict) -> dict:
     leak = acquires and (unguarded or bool(db.get("resources_leaked")))
     confirmed_leak = unguarded and bool(db.get("throws_between_acquire_and_release"))
 
+    # Counted by COMPUTED severity, not by the model's own confidence. An
+    # `impact: quality` finding is never "strong" no matter how certain the model
+    # is about it — which is what keeps a file full of style nits from scoring as
+    # high-risk.
     strong_findings = sum(
         1 for f in (summary.get("findings") or [])
-        if str(f.get("confidence") or "").lower() in ("high", "medium")
+        if severity(f.get("certainty"), f.get("impact")) in ("critical", "high", "medium")
     )
 
     score = sum(RISK_WEIGHTS.get(r, 0.5) for r in reasons)
@@ -141,6 +232,33 @@ def derive_signals(summary: dict) -> dict:
         "sig_leak": leak,
         "sig_confirmed_leak": confirmed_leak,
         "sig_findings": strong_findings,
+        # ---- contract fields: projected for analysis/join.py, not for scoring ----
+        # These deliberately carry NO weight in the score above. A method that can
+        # return null is not risky — it is completely ordinary. It only becomes a
+        # defect when paired with a CALLER that does not check, and that pairing is
+        # a graph question this file cannot see. Scoring them here would rank half
+        # the repo as dangerous for writing `return null`.
+        #
+        # Lists stay flat lists of strings so Cypher can test membership; anything
+        # nested would be as unqueryable as the summary JSON these are extracted
+        # from, which is the whole reason this module exists.
+        "sig_may_return_null": bool(contracts.get("may_return_null")),
+        "sig_null_condition": str(contracts.get("null_condition") or ""),
+        "sig_returns_sentinel": str(contracts.get("returns_sentinel") or ""),
+        # NORMALIZED TO BARE METHOD NAMES, in code rather than by instruction.
+        # prompts.py already says "bare method name only, no class prefix" and a
+        # measured Nova run returned 'config.get' and
+        # 'DriverManager.getConnection' regardless. join.py matches on
+        # `callee.name`, which is bare, so a qualified entry does not merely rank
+        # lower — it silently never matches and the candidate is lost. A prompt
+        # cannot be relied on for a value another query joins against.
+        "sig_unguarded_calls": _bare_names(contracts.get("unguarded_calls")),
+        "sig_swallowed_calls": _bare_names(contracts.get("swallowed_exception_calls")),
+        # Projected separately from sig_leak because the JOIN needs the raw fact,
+        # not the derived one: sig_leak already folds in resources_leaked, and the
+        # cross-function question is specifically "did THIS function guarantee the
+        # release", asked independently of the caller and the callee.
+        "sig_released_in_finally": bool(db.get("released_in_finally")),
     }
 
 

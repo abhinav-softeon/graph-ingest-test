@@ -281,6 +281,87 @@ _CURATED: dict[str, Entry] = {
     "org.springframework.web.util.HtmlUtils": Entry(
         SANITIZER, "CWE-79/xss",
         {"htmlescape": (0,), "htmlescapedecimal": (0,), "htmlescapehex": (0,)}),
+    # MONGODB. Upstream mines nothing here — FindSecBugs' injection config is
+    # JDBC/Hibernate/JPA-shaped — so without these entries a Mongo application is
+    # invisible to the whole pipeline: no CALLS_EXTERNAL edge, no sink seed, no
+    # reachability, no paths. Not a degraded result, an absent one.
+    #
+    # PostgreSQL needs nothing added: its driver goes through java.sql.*, and this
+    # catalog is keyed on the owner TYPE (PreparedStatement, Connection), never on
+    # which engine is behind it. Only a non-JDBC client would be a gap.
+    #
+    # WHY THE INJECTION SHAPE IS DIFFERENT, AND WHY THE ENTRIES STILL LOOK THE SAME
+    # NoSQL injection is not string concatenation. It is OPERATOR injection: a map
+    # or parsed JSON built from request data carries `$ne`, `$gt`, `$regex` or
+    # `$where`, and the driver honours them as query operators rather than values.
+    # So `db.sql_is_dynamic` does not describe the bug and a concatenation-hunting
+    # regex will not find it. What the catalog can still say precisely is WHICH
+    # ARGUMENT is the filter document — that is the position attacker data must not
+    # reach unvalidated, and it is the same question the JDBC entries answer.
+    "com.mongodb.client.MongoCollection": Entry(
+        SINK, "CWE-943/nosql-injection",
+        {"find": (0,), "aggregate": (0,), "count": (0,), "countdocuments": (0,),
+         "distinct": (1,), "deleteone": (0,), "deletemany": (0,),
+         "updateone": (0,), "updatemany": (0,), "replaceone": (0,),
+         "findoneanddelete": (0,), "findoneandreplace": (0,),
+         "findoneandupdate": (0,), "insertone": (0,), "insertmany": (0,),
+         "bulkwrite": (0,), "watch": (0,)},
+        note="argument 0 is the filter/pipeline document on every read and write "
+             "form. The update forms take the filter at 0 and the update at 1; "
+             "both are attacker-relevant, but 0 is where operator injection "
+             "changes WHICH documents are affected, which is the higher-impact half",
+    ),
+    "com.mongodb.client.MongoDatabase": Entry(
+        SINK, "CWE-943/nosql-injection",
+        {"runcommand": (0,)},
+        note="raw command document — the widest possible Mongo sink",
+    ),
+    # The legacy 2.x/3.x driver surface. Kept because a legacy enterprise codebase
+    # is exactly where it survives, and the class names do not overlap with the
+    # modern ones, so both can be listed without ambiguity.
+    "com.mongodb.DBCollection": Entry(
+        SINK, "CWE-943/nosql-injection",
+        {"find": (0,), "findone": (0,), "count": (0,), "aggregate": (0,),
+         "remove": (0,), "update": (0,), "updatemulti": (0,), "insert": (0,),
+         "save": (0,), "group": (0,), "mapreduce": (0,), "distinct": (1,)},
+        note="legacy driver; `group` and `mapreduce` accept server-side JavaScript "
+             "and are code execution, not merely query manipulation",
+    ),
+    # BSON assembly from attacker-controlled text. This is the step that turns a
+    # request parameter into query OPERATORS rather than a query VALUE, so it is
+    # the single highest-yield Mongo entry: a filter built with Filters.eq is safe
+    # by construction, and one built by parsing a user-supplied string is not.
+    "org.bson.Document": Entry(
+        SINK, "CWE-943/nosql-injection",
+        {"parse": (0,)},
+        note="Document.parse on request data is the classic operator-injection "
+             "entry point — the attacker supplies {'$ne': null} and the driver "
+             "treats it as an operator",
+    ),
+    "com.mongodb.BasicDBObject": Entry(
+        SINK, "CWE-943/nosql-injection",
+        {"parse": (0,)},
+        note="legacy equivalent of Document.parse",
+    ),
+    # The typed filter builders are the CORRECT pattern and end operator injection:
+    # a value passed here becomes a value, never an operator, whatever it contains.
+    # Catalogued as a sanitizer for the same reason PreparedStatement.setString is
+    # — without it every properly-built Mongo query reports as an injection.
+    "com.mongodb.client.model.Filters": Entry(
+        SANITIZER, "CWE-943/nosql-injection",
+        {"eq": (1,), "ne": (1,), "gt": (1,), "gte": (1,), "lt": (1,), "lte": (1,),
+         "in": (1,), "nin": (1,), "all": (1,), "size": (1,), "exists": (1,)},
+        note="argument 0 is the FIELD NAME and argument 1 is the value — the same "
+             "index trap as setString: an entry claiming position 0 would mark the "
+             "field name as sanitized and the attacker's value as raw. `where` and "
+             "`regex` are deliberately absent: they are sinks, not sanitizers",
+    ),
+    # Server-side JavaScript. Not injection into a query — arbitrary code on the
+    # database server, so it is catalogued as code injection rather than CWE-943.
+    "com.mongodb.client.model.Filters$where": Entry(
+        SINK, "CWE-94/code-injection", {"where": (0,)},
+        note="$where evaluates JavaScript on the server",
+    ),
     # SECOND-ORDER SOURCES. Nothing upstream marks these, and for a legacy
     # enterprise app they are arguably the most important source class there is:
     # a value an attacker stored through one screen, read back out of the

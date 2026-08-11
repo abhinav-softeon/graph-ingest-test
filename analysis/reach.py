@@ -66,6 +66,14 @@ CATEGORY_TO_KIND = {
     "CWE-79/xss": "response",
     "CWE-113/response-splitting": "response",
     "CWE-89/sql-injection": "db_execute",
+    # NoSQL rides the SAME kind as SQL rather than getting its own. Deliberate:
+    # db_execute already appears in DANGEROUS_KINDS, in paths.sink_paths' default
+    # sink set and in every consumer downstream, so a new kind would need each of
+    # those touched and would be silently dropped by any that was missed. The
+    # question the kind answers — "a query reached the database" — is identical;
+    # only the injection mechanism differs, and that distinction lives in the CWE
+    # category, which is preserved on the node.
+    "CWE-943/nosql-injection": "db_execute",
 }
 
 _TRUSTED = (

@@ -123,7 +123,7 @@ def harvest(store, repo: str, kinds: frozenset[str] = SINGLE_FILE_KINDS) -> list
                               "line": finding.get("line") or row["start_line"],
                               "what": finding.get("detail") or ""}],
                 "confidence": finding.get("confidence"),
-                "source": "pass_a",
+                "source": "file_pass",
                 "need_source_for": [],
             })
     by_kind: dict[str, int] = {}

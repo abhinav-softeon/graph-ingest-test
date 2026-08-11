@@ -33,12 +33,42 @@ _SPRING_MAPPING = {
     "GetMapping": "GET", "PostMapping": "POST", "PutMapping": "PUT",
     "DeleteMapping": "DELETE", "PatchMapping": "PATCH",
 }
+# The servlet's own URL, declared on the class: @WebServlet("/servlets/a/b/Foo").
+# This is the ENTRY POINT of a classic Java web app, and until it was read here
+# such an app produced almost no Endpoint nodes at all — _SPRING_MAPPING only
+# knows Spring MVC, so a JAX-WS/servlet codebase looked like it had no HTTP
+# surface, and every reachability pass that seeds from EXPOSES started empty.
+_SERVLET_ANNOTATION = "WebServlet"
+
+# @WebServlet carries no HTTP verb — one servlet serves every method. Endpoints
+# are keyed (METHOD, route), so they need SOME verb, and picking GET would make
+# a form POST to the same URL miss. This sentinel is matched specially by the
+# resolver (see match_endpoints), which falls back to it when the caller's own
+# verb finds nothing.
+SERVLET_ANY_METHOD = "ANY"
+
+# The methods a servlet container actually dispatches to. Measured on a 16.7k
+# -file JSP app: service() in 3,330 files, doGet/doPost/doDelete in 20 between
+# them — so `service` is the handler in practice, but the doXxx family is listed
+# because when a servlet does use them, they are the only handler it has.
+_SERVLET_ENTRY_METHODS = {
+    "service", "doGet", "doPost", "doPut", "doDelete", "doHead", "doOptions",
+}
+
 # RestTemplate method -> HTTP verb (outbound call detection).
 _REST_TEMPLATE_CALLS = {
     "getForObject": "GET", "getForEntity": "GET",
     "postForObject": "POST", "postForEntity": "POST", "postForLocation": "POST",
     "put": "PUT", "delete": "DELETE",
 }
+# The two entries above that are also everyday Map/Collection methods. These
+# require receiver evidence before they count as an HTTP call — see
+# _outbound_java for what happens without it.
+_AMBIGUOUS_REST_CALLS = frozenset({"put", "delete"})
+# Substrings of a receiver name that mean "this is an HTTP client". Matched as a
+# substring so `restTemplate`, `myRestTemplate` and `sftRestTemplate` all pass.
+# The Java analogue of apispec.HTTP_CLIENT_RECEIVERS.
+_JAVA_HTTP_RECEIVER_HINTS = ("resttemplate", "webclient", "httpclient", "feign")
 
 _AUTH_REQUIRE_ANNOTATIONS = {
     "Authenticated", "AuthenticationPrincipal", "LoginRequired",
@@ -217,6 +247,10 @@ def extract(file: FileInfo, repo: str):
                 ref("IMPLEMENTS", cid, t, "type", si)
 
         route_prefix = _request_mapping_prefix(src, node)
+        # The servlet's declared URL, if any. Held on the CLASS but exposed by
+        # its handler METHODS, because EXPOSES is Function -> Endpoint and it is
+        # the handler a caller actually reaches.
+        servlet_route = _servlet_route(src, node)
         body = node.child_by_field_name("body")
         if body:
             members = body.children
@@ -243,7 +277,8 @@ def extract(file: FileInfo, repo: str):
                             field_types[text(src, _nm)] = _ft
             for child in members:
                 if child.type in ("method_declaration", "constructor_declaration"):
-                    walk_method(child, fqn, cid, route_prefix, field_types)
+                    walk_method(child, fqn, cid, route_prefix, field_types,
+                                servlet_route)
                     if child.type == "constructor_declaration":
                         _extract_ctor_di(child, cid, single=len(constructors) == 1)
                 elif child.type == "field_declaration":
@@ -269,7 +304,8 @@ def extract(file: FileInfo, repo: str):
             if t is not None:
                 ref("AUTOWIRED", class_id, simple_type_name(text(src, t)), "type", p)
 
-    def walk_method(node, class_fqn, class_id, route_prefix="", field_types=None):
+    def walk_method(node, class_fqn, class_id, route_prefix="", field_types=None,
+                    servlet_route=""):
         name_node = node.child_by_field_name("name")
         is_ctor = node.type == "constructor_declaration"
         name = text(src, name_node) if name_node else (class_fqn.rsplit(".", 1)[-1] if is_ctor else "<anon>")
@@ -310,6 +346,12 @@ def extract(file: FileInfo, repo: str):
             ref("CONSUMES_EVENT", mid, topic, "event", node)
         for method, route in _spring_endpoints(src, node, route_prefix):
             emit_endpoint(method, route, mid, node)
+        # The class's @WebServlet URL, exposed by each container-dispatched
+        # handler. Emitted per handler rather than once per class so the graph
+        # says which METHOD serves the route, which is what a path needs to
+        # continue into the business logic.
+        if servlet_route and name in _SERVLET_ENTRY_METHODS and not is_ctor:
+            emit_endpoint(SERVLET_ANY_METHOD, servlet_route, mid, node)
         # type edges: return type + parameter types
         if rt_node is not None and not is_ctor:
             _emit_type(ref, "RETURNS", mid, src, rt_node)
@@ -444,6 +486,23 @@ def extract(file: FileInfo, repo: str):
                     if fname:
                         ref("WRITES" if d.id in write_fa else "READS",
                             mid, fname, "field", d, recv="this")
+                elif d.type == "string_literal":
+                    # Which JSP this method renders. Scoped to the whole METHOD
+                    # BODY rather than to the forward call's argument, and that is
+                    # the entire reason it works: measured on a 16.7k-file JSP
+                    # app, only 1,827 of 3,280 getRequestDispatcher calls hold the
+                    # literal themselves — the rest read a local assigned a few
+                    # lines earlier (`final String nextUrl = PREFIX + "x.jsp";`).
+                    # Matching the argument alone would miss 44% of forwards.
+                    #
+                    # The path is almost never wholly literal either: the real
+                    # shape is `PREFIX_CONSTANT + "adhocquery.jsp"`, so only the
+                    # basename is available and only the basename is used. The
+                    # resolver matches it against File nodes, and a name matching
+                    # two pages resolves AMBIGUOUS rather than picking one.
+                    page = _jsp_page_literal(src, d)
+                    if page:
+                        ref("RENDERS", mid, page, "file", d)
 
     def walk_field(node, class_fqn, class_id):
         vis, mods, anns = modifiers_of(node)
@@ -645,6 +704,54 @@ def _request_mapping_method(src: bytes, ann_node) -> str:
     return ""
 
 
+def _servlet_route(src: bytes, type_node) -> str:
+    """The URL from a class-level ``@WebServlet``, or '' if there is none.
+
+    Reuses ``_annotation_value``, which already reads a bare string argument as
+    well as ``value=``/``path=`` — the three spellings @WebServlet accepts
+    (``urlPatterns=`` is handled by the ``value``/``path`` branch failing over to
+    the bare-literal branch when only one pattern is given).
+
+    Multi-pattern ``urlPatterns = {"/a", "/b"}`` yields only the first literal.
+    Deliberate: a second Endpoint for the same handler adds a node and an edge
+    that no query distinguishes, and the first pattern is the canonical one in
+    every case measured.
+    """
+    for ann in _annotation_nodes(type_node):
+        nm = ann.child_by_field_name("name")
+        if nm is not None and simple_type_name(text(src, nm)) == _SERVLET_ANNOTATION:
+            return _annotation_value(src, ann)
+    return ""
+
+
+def _jsp_page_literal(src: bytes, lit_node) -> str:
+    """The bare page name if this string literal names a JSP, else ''.
+
+    Returns the BASENAME only. The literal is typically the tail of a
+    concatenation whose head is a constant (``BASE_JSP_ADHOC_URL + "x.jsp"``), so
+    a full path is not available; matching on basename is what makes the
+    resolution possible at all, and the resolver keeps it honest by reporting
+    AMBIGUOUS when two pages share a name.
+
+    Query strings are stripped (``"x.jsp?mode=Q"``). Anything that is not a
+    single path-like token is rejected, so a literal that merely mentions ``.jsp``
+    inside a sentence or a regex does not become an edge.
+    """
+    raw = _str_lit(src, lit_node).strip()
+    if not raw or ".jsp" not in raw.lower():
+        return ""
+    raw = raw.split("?", 1)[0].split("#", 1)[0]
+    name = raw.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not name.lower().endswith((".jsp", ".jspf")):
+        return ""
+    # A real page name is one path token: letters, digits, _ - . only. This is
+    # what rejects log messages and patterns that happen to contain ".jsp".
+    stem = name.rsplit(".", 1)[0]
+    if not stem or any(ch in name for ch in " \t\"'<>%$*(){}[]+,;:=&"):
+        return ""
+    return name
+
+
 def _request_mapping_prefix(src: bytes, type_node) -> str:
     """Class-level @RequestMapping route prefix, or '' if none."""
     for ann in _annotation_nodes(type_node):
@@ -671,7 +778,20 @@ def _spring_endpoints(src: bytes, method_node, prefix: str):
 
 
 def _outbound_java(src: bytes, call_node, name: str):
-    """If this invocation is a RestTemplate-style HTTP call, return (METHOD, url)."""
+    """If this invocation is a RestTemplate-style HTTP call, return (METHOD, url).
+
+    TWO GUARDS, AND THEY ARE NOT OPTIONAL. `_REST_TEMPLATE_CALLS` contains `put`
+    and `delete`, which are also the two most common Map/Collection methods in
+    Java. With the method name as the only test, every `map.put("sortSeqNo", v)`
+    read as an HTTP PUT to `/sortSeqNo` — measured on one adhoc servlet, 24 of its
+    25 detected "HTTP calls" were map writes.
+
+    That produced no visible damage for as long as CALLS_API sat in
+    DROPPED_EDGE_TYPES, because the edges were built and then discarded at write
+    time. The moment CALLS_API became a real edge (it now carries the JS -> servlet
+    hop) the same code would have minted one bogus Endpoint node per distinct map
+    key in the repo. A dropped edge type hides the cost of a loose detector.
+    """
     args = call_node.child_by_field_name("arguments")
     if args is None:
         return None
@@ -679,9 +799,18 @@ def _outbound_java(src: bytes, call_node, name: str):
     if first is None or first.type != "string_literal":
         return None
     url = _str_lit(src, first)
-    if not url:
+    # Guard 1: it has to look like a URL. A map key does not.
+    if not url or not (url.startswith("/") or "://" in url):
         return None
     if name in _REST_TEMPLATE_CALLS:
+        # Guard 2: for the verbs that collide with ordinary collection methods,
+        # the receiver must actually be an HTTP client. The distinctive names
+        # (getForObject/postForEntity/...) need no such check — nothing else is
+        # called that.
+        if name in _AMBIGUOUS_REST_CALLS:
+            recv = _java_recv_tail(call_node).lower()
+            if not any(hint in recv for hint in _JAVA_HTTP_RECEIVER_HINTS):
+                return None
         return _REST_TEMPLATE_CALLS[name], url
     if name == "exchange":
         # exchange(url, HttpMethod.POST, ...) -> verb from the 2nd argument

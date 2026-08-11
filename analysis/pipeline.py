@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from . import (findings, neighborhood, pass_a, pass_b, pass_c, pass_d, paths,
+from . import (findings, neighborhood, file_pass, path_pass, adversarial_pass, paths,
                priority, reach, single_file)
 from sail_core.logger.logger import get_logger
 
@@ -39,27 +39,25 @@ def _stage_trace(rows: list[dict], b, c, d) -> dict:
 
     Reports the four places a finding can disappear, in pipeline order:
       enumerated      — appeared on a path at all (absent = reach/paths dropped it)
-      pass_b_finding  — Pass B called it a defect or asked for source
-      pass_c_dismissed— refuted after reading real source (the strongest dismissal)
-      pass_d_killed   — refuted by the adversarial panel, with the votes that did it
+      path_pass_finding  — Pass B called it a defect or asked for source
+      adversarial_pass_killed   — refuted by the adversarial panel, with the votes that did it
     """
     enumerated = sorted({f for r in rows for f in (r.get("fqns") or [])})
     b_sinks = _sinks(getattr(b, "findings", []))
-    c_dismissed = {k: v for k, v in _sinks(getattr(c, "findings", [])).items()
+    c_dismissed = {k: v for k, v in _sinks([]).items()
                    if v.get("dismissed")}
     killed = _sinks(getattr(d, "killed_findings", []))
     confirmed = _sinks(getattr(d, "confirmed_findings", []))
     return {
         "enumerated_functions": len(enumerated),
-        "pass_b_sinks": sorted(b_sinks),
-        "pass_c_dismissed": sorted(c_dismissed),
-        "pass_d_killed": {
+        "path_pass_sinks": sorted(b_sinks),
+        "adversarial_pass_killed": {
             k: {"kind": v.get("kind"),
                 "votes": (v.get("adjudication") or {}).get("votes"),
                 "why": (v.get("dismissed_because") or "")[:300]}
             for k, v in killed.items()
         },
-        "pass_d_confirmed": sorted(confirmed),
+        "adversarial_pass_confirmed": sorted(confirmed),
     }
 
 
@@ -69,18 +67,18 @@ def run(store, repo: str, root: str,
         max_depth: int = paths.DEFAULT_MAX_DEPTH,
         path_limit: int = 2000,
         include_leaks: bool = True,
-        skip_pass_a: bool = False,
+        skip_file_pass: bool = False,
         persist_dismissals: bool = True) -> dict:
     """The whole pipeline. Safe to re-run — A is incremental, dismissals persist.
 
-    ``skip_pass_a`` reuses existing summaries, for iterating on B/C/D prompts
+    ``skip_file_pass`` reuses existing summaries, for iterating on B/C/D prompts
     without re-paying for summarization.
     """
     t0 = time.monotonic()
     out: dict = {"repo": repo}
 
-    if not skip_pass_a:
-        out["pass_a"] = pass_a.run_pass_a(store, repo, root, langs=langs).summary()
+    if not skip_file_pass:
+        out["file_pass"] = file_pass.run_file_pass(store, repo, root, langs=langs).summary()
     else:
         _log.info("[pipeline] skipping Pass A — reusing stored summaries")
         # Summaries written under an older schema read as fresh (body_hash still
@@ -143,11 +141,9 @@ def run(store, repo: str, root: str,
         out["seconds"] = round(time.monotonic() - t0, 1)
         return out
 
-    b = pass_b.run_pass_b(store, repo, rows, prior_findings=direct, root=root)
-    out["pass_b"] = b.summary()
+    b = path_pass.run_path_pass(store, repo, rows, prior_findings=direct, root=root)
+    out["path_pass"] = b.summary()
 
-    c = pass_c.run_pass_c(store, repo, root, b.findings)
-    out["pass_c"] = c.summary()
 
     # Neighbourhood pass: every summarized function judged against its 1- and 2-hop
     # callee summaries, independent of whether it sits on an entry->sink path. Pass B
@@ -161,9 +157,7 @@ def run(store, repo: str, root: str,
     # streams are adjudicated together so one dedup and one panel cover everything.
     nb_expand = [f for f in nb.findings if f.get("need_source_for")]
     if nb_expand:
-        nc = pass_c.run_pass_c(store, repo, root, nb_expand)
-        out["pass_c_neighborhood"] = nc.summary()
-        nb_ready = [f for f in nb.findings if not f.get("need_source_for")] + nc.findings
+        nb_ready = list(nb.findings)
     else:
         nb_ready = nb.findings
 
@@ -171,13 +165,13 @@ def run(store, repo: str, root: str,
     # only 171 were distinct defects, and the panel spent 975 calls (~$5.64) refuting
     # the same bug reached by a different path. Dedup was running after D purely
     # because that is where the report is assembled.
-    candidates = findings.dedupe(store, repo, c.findings + nb_ready)
+    candidates = findings.dedupe(store, repo, b.findings + nb_ready)
     out["pre_adjudication"] = {
-        "before_dedupe": len(c.findings) + len(nb_ready),
+        "before_dedupe": len(b.findings) + len(nb_ready),
         "distinct": len(candidates),
     }
-    d = pass_d.run_pass_d(candidates)
-    out["pass_d"] = d.summary()
+    d = adversarial_pass.run_adversarial_pass(candidates)
+    out["adversarial_pass"] = d.summary()
 
     # STAGE TRACE — which stage dropped each vulnerable function, kept per sink.
     # Without it, "a finding is missing" gives no purchase: every stage narrows the

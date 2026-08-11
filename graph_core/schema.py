@@ -53,6 +53,30 @@ EDGE_TYPES = {
     # HTTP-API layer
     "EXPOSES",      # Function -> Endpoint (backend handler serves this route)
     "CALLS_API",    # Function -> Endpoint (outbound HTTP call to this route)
+    # Cross-language web layer. These three are what connect a JSP app's tiers;
+    # without them a JSP graph is three disconnected islands (Java, JSP, JS) and
+    # no path can run from a screen to the database.
+    #
+    #   RENDERS          Function(java) -> File(jsp)
+    #                    `getRequestDispatcher(PREFIX + "foo.jsp").forward(...)`
+    #   INCLUDES_SCRIPT  File(jsp) -> File(js)
+    #                    `<script src="<%=PREFIX%>foo.js">`
+    #   INCLUDES_PAGE    File(jsp) -> File(jsp)
+    #                    `<%@ include file="..." %>` / `<jsp:include|forward>`.
+    #                    Its own type rather than reusing USES: USES means
+    #                    "component-level dependency, too coarse to act on" and is
+    #                    dropped for that reason, while a page include is an exact,
+    #                    actionable fact (3,816 pages use one). Overloading one
+    #                    name for both would make "is this edge trustworthy?"
+    #                    unanswerable from the type alone.
+    #   HANDLED_BY       Function(js) -> Class(java)
+    #                    an AJAX handler named by FQN, or a form action naming a
+    #                    servlet class directly. Distinct from CALLS_API because
+    #                    the target is a CLASS, not a route — no URL is involved.
+    "RENDERS",
+    "INCLUDES_SCRIPT",
+    "INCLUDES_PAGE",
+    "HANDLED_BY",
     # Flexible dependency layer (additive, lower-trust by default)
     "REFERENCES",   # generic symbol use when stricter typing is unavailable
     "USES",         # higher-level/component dependency
@@ -92,6 +116,12 @@ EDGE_TYPES = {
 #   OVERRIDES / EXTENDS / IMPLEMENTS / INSTANTIATES   which implementation runs
 #   CONTAINS                the scope chain; resolve and derive both read it
 #   ANNOTATED_WITH / EXPOSES   endpoint discovery = the taint SOURCES
+#   RENDERS / INCLUDES_SCRIPT / INCLUDES_PAGE / HANDLED_BY
+#                           the cross-language web layer
+#   CALLS_API               was dropped as "outbound HTTP", true when RestTemplate
+#                           was its only producer. It is now how a JS servlet-URL
+#                           call reaches its @WebServlet Endpoint — the JS -> Java
+#                           hop, which no other edge type expresses.
 #
 # These stay in EDGE_TYPES on purpose. assert_edge guards Cypher interpolation,
 # so delisting a type that something still emits turns a silent no-op into a
@@ -113,10 +143,14 @@ DROPPED_EDGE_TYPES = frozenset({
     "THROWS",           # in the throws clause / throw statement being read
     "CATCHES",          # in the catch block being read
     "REFERENCES",       # "related somehow" — the resolver's lowest-trust fallback
-    "USES",             # component-level aggregation, too coarse to act on
+    # USES stays dropped, and it has NO PRODUCER AT ALL: nothing in any extractor
+    # emits it (verified by grep across graph_core/ingest/analysis). The
+    # component/module aggregation it was reserved for was never built — see the
+    # closing comment in cypher_derive_reference.py, which calls it a research
+    # task. JSP page includes, its only near-use, now have INCLUDES_PAGE instead.
+    "USES",
     "BELONGS_TO",       # Module ownership; modules are not part of this analysis
     "RE_EXPORTS",       # JS/TS export forwarding
-    "CALLS_API",        # outbound HTTP
     "EMITS_EVENT",      # event/queue layer, unused here
     "CONSUMES_EVENT",
     "REQUIRES_AUTH",    # policy layer, unused here

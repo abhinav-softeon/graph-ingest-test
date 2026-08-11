@@ -3,7 +3,7 @@
     python scripts/run_analysis.py                    # ingest + full pipeline
     python scripts/run_analysis.py --smoke-only       # just verify Bedrock works
     python scripts/run_analysis.py --skip-ingest      # reuse the existing graph
-    python scripts/run_analysis.py --skip-pass-a      # reuse stored summaries
+    python scripts/run_analysis.py --skip-file-pass      # reuse stored summaries
 
 The point of running against the generated corpus rather than a real repo is that
 manifest.json says which functions are genuinely vulnerable. So this prints
@@ -214,7 +214,7 @@ def main() -> int:
     ap.add_argument("--repo", default="corpus")
     ap.add_argument("--smoke-only", action="store_true")
     ap.add_argument("--skip-ingest", action="store_true")
-    ap.add_argument("--skip-pass-a", action="store_true")
+    ap.add_argument("--skip-file-pass", action="store_true")
     ap.add_argument("--skip-smoke", action="store_true")
     args = ap.parse_args()
 
@@ -246,13 +246,13 @@ def main() -> int:
         store = ingest(corpus, args.repo)["store"]
 
     print("\n[analysis] starting pipeline")
-    result = pipeline.run(store, args.repo, corpus, skip_pass_a=args.skip_pass_a,
+    result = pipeline.run(store, args.repo, corpus, skip_file_pass=args.skip_file_pass,
                           persist_dismissals=False)
 
     print("\n" + "=" * 74)
     print("STAGE REPORTS")
     print("=" * 74)
-    for stage in ("pass_a", "signals", "reach", "pass_b", "pass_c", "pass_d"):
+    for stage in ("file_pass", "signals", "reach", "path_pass", "adversarial_pass"):
         if stage in result:
             print(f"\n{stage}:\n{json.dumps(result[stage], indent=2, default=str)}")
 

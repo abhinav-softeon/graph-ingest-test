@@ -187,8 +187,12 @@ class TestExtraction:
         """Include and forward are how one page reaches another — the top of
         every request path."""
         _nodes, _edges, refs, _fi = _extract_one()
-        uses = {r.target_name for r in refs if r.type == "USES"}
-        assert {"header.jspf", "done.jsp"} <= uses
+        # INCLUDES_PAGE, not USES. These were emitted as USES, which sits in
+        # DROPPED_EDGE_TYPES, so the edges were built and then discarded at write
+        # time — the page graph never reached Neo4j. USES also has no other
+        # producer anywhere, so the name carried no meaning to share.
+        pages = {r.target_name for r in refs if r.type == "INCLUDES_PAGE"}
+        assert {"header.jspf", "done.jsp"} <= pages
 
     def test_declarations_become_fields(self):
         nodes, _edges, _refs, _fi = _extract_one()

@@ -119,7 +119,7 @@ def load_dismissals(store, repo: str) -> dict[str, dict]:
     return {r["fingerprint"]: dict(r) for r in rows}
 
 
-def save_dismissals(store, repo: str, findings: list[dict], by: str = "pass_d") -> int:
+def save_dismissals(store, repo: str, findings: list[dict], by: str = "adversarial_pass") -> int:
     """Persist dismissals with their reason.
 
     The reason is stored, not just the fact: a bare suppression list is unauditable,

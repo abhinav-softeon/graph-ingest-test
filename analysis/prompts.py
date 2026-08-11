@@ -107,9 +107,51 @@ RULES THAT MATTER MOST
 10. `findings` covers defects visible in THIS body alone. Do not report anything
    that depends on how callers use this function — a separate pass owns that, with
    the caller context you do not have. An empty findings list is normal and
-   expected for most functions.
+   expected for most functions. Report EVERY issue you see, and note that not
+   every issue is a defect — slow code, duplication, dead code and needless
+   complexity all belong here. A later stage ranks and filters; something you
+   drop here is never recovered.
 
-Be precise and complete over the fields that exist. Do not pad prose."""
+   Rate each one on TWO axes and do not try to judge overall severity, which is
+   computed from them:
+
+   `certainty` — can you point at the code that does it (`demonstrated`), do the
+   conditions look reachable without your having shown it (`probable`), or are you
+   inferring (`speculative`)? Understating certainty costs nothing; a later stage
+   re-checks everything. Overstating it is what makes a report untrustworthy.
+
+   `impact` — what is at stake IF it happens, independent of how sure you are.
+   `exposure` for secrets, attacker-controlled data or code execution; `integrity`
+   for corrupted data, a security weakness or a leaked resource; `correctness`
+   when the code does the wrong thing; `quality` when it works and could simply be
+   better. `quality` is a frequent and correct answer — an optimization is a real
+   observation, and rating it honestly is what keeps it from crowding out the
+   things that matter.
+
+11. The `contracts` block is the ONLY field pair that is joined across functions,
+   and each half is judged separately. Report them mechanically, not
+   interpretively:
+
+   `may_return_null` — TRUE if `return null;` appears on any path out, including
+   error and not-found branches. Do not reason about whether callers cope; that is
+   a different function's problem and a different pass's question. This one is
+   close to a lexical fact, so read it off the code.
+
+   `unguarded_calls` — method names called here whose RESULT this body then uses
+   (dereferences, passes on, returns) without a null check in between. Omit a call
+   whose result is discarded. Omit it if the value is checked by ANY means: an if,
+   an early return, a ternary, or a validation helper this file calls. Bare method
+   name only, no class prefix — the call graph supplies the class.
+
+   Being unsure here is cheap. Rows produced from these fields are candidates that
+   another pass tries to refute, so a false entry costs one review and a missed
+   entry costs a real bug. When you genuinely cannot tell whether a guard covers a
+   call, include the call.
+
+Be precise and complete over the fields that exist. Do not pad prose.
+
+Say nothing about JSON, formatting, or the schema — the response format is
+enforced by the API, not by you. Spend your attention on the observations."""
 
 
 def system_prompt() -> str:

@@ -178,6 +178,17 @@ _CATEGORY_TO_KIND = {
     "CWE-79/xss": "response",
     "CWE-113/response-splitting": "response",
     "CWE-89/sql-injection": DB_EXECUTE,       # non-JDBC SQL sinks (JPA/Hibernate)
+    # Mongo. MUST be here and not only in reach.CATEGORY_TO_KIND — the two tables
+    # are deliberate duplicates (see the note there) but they are consumed at
+    # different times and a category present in only one fails silently.
+    # reach's copy sets f.sink_kinds at ANALYSIS time, which marks the node; this
+    # copy sets the External node's `kind` at INGEST, which is what
+    # paths.sink_paths filters its endpoints on. Mapped here to TAINT_SINK, a
+    # Mongo query would be marked as a sink and then never returned as one,
+    # because TAINT_SINK is not in DANGEROUS_KINDS — visible in the graph,
+    # invisible in the output. Measured before this line existed: classify_call
+    # returned taint_sink for every MongoCollection method.
+    "CWE-943/nosql-injection": DB_EXECUTE,
 }
 
 # Resolved ONCE per process, not per call. classify_call runs ~3.8M times on the

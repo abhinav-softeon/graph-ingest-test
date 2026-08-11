@@ -9,16 +9,15 @@ nodes, plus `:AnalysisDismissal` nodes for dismissal memory.
 
 STAGE ORDER IS LOAD-BEARING
 
-  A. pass_a               One LLM call per file. Incremental by body_hash. Also
+  A. file_pass               One LLM call per file. Incremental by body_hash. Also
                           writes the scalar signals every later stage ranks on —
                           nothing below it can see more than it reported.
   R. reach.mark_all()     Reachability to a fixpoint, both directions. No depth
                           bound — it is a closure, not an enumeration.
   P. paths                Enumerate INSIDE the universe R produced. Bounded, hubs
                           excluded, trusted edges only.
-  B. pass_b               Judge paths from summaries alone. No source sent.
-  C. pass_c               Fetch real source only where B said it could not tell.
-  D. pass_d               Adversarial panel tries to REFUTE what survived.
+  B. path_pass               Judge paths from summaries alone. No source sent.
+  D. adversarial_pass               Adversarial panel tries to REFUTE what survived.
   F. findings.report()    Dedupe, apply prior dismissals, rank.
 
 Each stage narrows the set, so the expensive passes only see what the cheap ones

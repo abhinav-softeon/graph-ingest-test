@@ -18,6 +18,9 @@ def _summary(fid: str, **over) -> dict:
         "id": fid, "does": "does a thing", "params": [], "returns": "void",
         "calls": [], "touches": ["none"], "fields_read": [], "fields_written": [],
         "findings": [], "uncertain": [],
+        "contracts": {"may_return_null": False, "null_condition": "",
+                      "returns_sentinel": "", "unguarded_calls": [],
+                      "swallowed_exception_calls": []},
         "db": {"acquires": False, "releases": False, "released_in_finally": False,
                "executes_sql": False, "sql_is_dynamic": False, "resources_leaked": [],
                "throws_between_acquire_and_release": False, "resource_types": []},
@@ -139,11 +142,12 @@ class TestSchema:
     def test_leak_critical_fields_are_required(self):
         """released_in_finally is the field the graph cannot express. If it ever
         becomes optional, leak precision silently reverts to the graph's."""
-        db = (contract.SUMMARY_SCHEMA["properties"]["summaries"]["items"]
-              ["properties"]["db"])
-        assert "released_in_finally" in db["required"]
-        assert "sql_is_dynamic" in db["required"]
-        assert "resources_leaked" in db["required"]
+        wire = (contract.SUMMARY_SCHEMA["properties"]["summaries"]["items"])
+        assert "db_released_in_finally" in wire["required"]
+        assert "db_sql_is_dynamic" in wire["required"]
+        assert "db_resources_leaked" in wire["required"]
+        # ...and that nest() restores the name the rest of the pipeline reads.
+        assert contract.nest({"db_released_in_finally": True})["db"]["released_in_finally"]
 
     def test_is_json_serializable(self):
         json.dumps(contract.SUMMARY_SCHEMA)

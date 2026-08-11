@@ -85,7 +85,7 @@ def _read_source(root: str, relpath: str) -> str | None:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             return fh.read()
     except OSError as exc:
-        _log.warning("[pass_a] unreadable %s: %s", relpath, exc)
+        _log.warning("[file_pass] unreadable %s: %s", relpath, exc)
         return None
 
 
@@ -109,17 +109,17 @@ def _run_chunk(client, model: str, relpath: str, lang: str, source: str,
         res = client.complete(system, user, schema=contract.SUMMARY_SCHEMA)
         results.append(res)
         if not res.ok:
-            _log.warning("[pass_a] %s chunk call failed (attempt %s): %s",
+            _log.warning("[file_pass] %s chunk call failed (attempt %s): %s",
                          relpath, attempt, res.error)
             continue
         if res.parsed is None:
-            _log.warning("[pass_a] %s returned no parseable JSON (attempt %s)",
+            _log.warning("[file_pass] %s returned no parseable JSON (attempt %s)",
                          relpath, attempt)
             continue
         try:
             rows = contract.validate(res.parsed, expected)
         except contract.ValidationError as exc:
-            _log.warning("[pass_a] %s failed validation (attempt %s): %s",
+            _log.warning("[file_pass] %s failed validation (attempt %s): %s",
                          relpath, attempt, exc)
             continue
         return rows, results, attempt
@@ -133,7 +133,7 @@ def _facts_line(func: dict, facts: dict) -> str:
     return f"{func.get('name') or func['id']}:\n{body}"
 
 
-def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
+def run_file_pass(store, repo: str, root: str, langs: list[str] | None = None,
                model: str | None = None, limit_files: int | None = None) -> PassAReport:
     """Summarize the repo. Incremental by body_hash; safe to re-run.
 
@@ -147,7 +147,7 @@ def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
     files = astore.files_with_functions(store, repo, langs)
     if limit_files:
         files = files[:limit_files]
-    _log.info("[pass_a] %s file(s) with functions; model=%s", len(files), model)
+    _log.info("[file_pass] %s file(s) with functions; model=%s", len(files), model)
 
     jobs = []
     for entry in files:
@@ -164,12 +164,12 @@ def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
     # provider SDK installed.
     if not jobs:
         rep.seconds = time.monotonic() - t0
-        _log.info("[pass_a] every function already has a fresh summary "
+        _log.info("[file_pass] every function already has a fresh summary "
                   "(%s function(s) across %s file(s)) — nothing to do",
                   rep.functions_skipped_fresh, rep.files_skipped_fresh)
         return rep
 
-    client = get_client(model, pass_name="pass_a")
+    client = get_client(model, pass_name="file_pass")
     per_call = config.max_functions_per_call()
 
     def _do_file(entry: dict, pending: list[dict]) -> dict:
@@ -212,7 +212,7 @@ def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
             try:
                 got = fut.result()
             except Exception as exc:  # noqa: BLE001 - one file must not kill the pass
-                _log.warning("[pass_a] %s raised: %s", relpath, exc)
+                _log.warning("[file_pass] %s raised: %s", relpath, exc)
                 rep.errors.append(f"{relpath}: {exc}")
                 continue
             if got.get("error"):
@@ -240,7 +240,7 @@ def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
         # below this point — findings, recall, coverage — is then measured on an
         # incomplete repo, and nothing else in the output would reveal that.
         _log.warning(
-            "[pass_a] %s call(s) LOST TO THROTTLING after retries. Those functions "
+            "[file_pass] %s call(s) LOST TO THROTTLING after retries. Those functions "
             "have no summary and every downstream number is on partial data. Lower "
             "GRAPH_LLM_WORKERS (currently %s) and re-run — cached summaries are not "
             "re-billed, so a re-run only fills the gaps.",
@@ -249,9 +249,9 @@ def run_pass_a(store, repo: str, root: str, langs: list[str] | None = None,
         # Expected on Haiku 4.5: the system prompt is ~1k tokens and the minimum
         # cacheable prefix is 4096. Stated once so it is not mistaken for a bug.
         _log.info(
-            "[pass_a] no prompt caching engaged (cache_write=0) — expected when the "
+            "[file_pass] no prompt caching engaged (cache_write=0) — expected when the "
             "system prompt is under the model's minimum cacheable prefix; the "
             "incremental saving here is body_hash, not caching",
         )
-    _log.info("[pass_a] done: %s", rep.summary())
+    _log.info("[file_pass] done: %s", rep.summary())
     return rep

@@ -8,7 +8,16 @@ ids from make_id(repo, ...), Node.file/Node.repo/package fields), so a bundle
 is only valid for the exact file it was extracted from. A sha-only scheme
 would mean every duplicate-content file (e.g. multiple identical
 `__init__.py` files) silently collides on the first writer's bundle. Keys
-are namespaced under `v2/` in case the key scheme ever changes again.
+are namespaced under a version directory (`_CACHE_VERSION`).
+
+BUMP _CACHE_VERSION WHENEVER AN EXTRACTOR STARTS EMITTING SOMETHING NEW.
+The key is (content sha, repo, relpath) and NOTHING about the extractor, so a
+file whose bytes have not changed is served from cache no matter how much the
+extraction logic has moved on. Adding a ref type without bumping means every
+previously-ingested file silently keeps its OLD bundle: the new edges appear
+only for files that happen to be new or edited, and the run looks like the
+feature half-works rather than like a stale cache. That failure is invisible —
+there is no error, just missing edges.
 
 Standalone-app note: developer_assistant's original extract_cache.py is
 S3-backed (boto3 + app.core.config.settings + sail_core.aws_services) — this
@@ -39,6 +48,18 @@ from .config import get_extract_cache_dir, is_extract_cache_enabled
 
 _log = get_logger(__name__)
 
+# v3: the cross-language web layer (RENDERS / INCLUDES_SCRIPT / INCLUDES_PAGE /
+# HANDLED_BY / CALLS_API-from-JS / @WebServlet endpoints). Bundles cached under v2
+# predate every one of those refs.
+#
+# NOT the same lifetime as the extraction CHECKPOINT, which is a common mix-up.
+# pipeline.index_repo calls checkpoint.clear_checkpoint() after a successful run,
+# so `.graph_checkpoints/` is gone once the graph is ingested — correct, it exists
+# only to resume a crashed run. THIS cache is the opposite: it exists precisely to
+# outlive a run so an unchanged file is never re-parsed, and nothing deletes it.
+# That is why a version bump is the only way to invalidate it.
+_CACHE_VERSION = "v3"
+
 
 class ExtractCache:
     """Local-disk cache mapping a file content sha -> its CanonicalBundle.
@@ -53,7 +74,7 @@ class ExtractCache:
         self._dir = Path(get_extract_cache_dir() or os.path.join(".cache", "graph_extract_cache"))
         if self._enabled:
             try:
-                (self._dir / "v2").mkdir(parents=True, exist_ok=True)
+                (self._dir / _CACHE_VERSION).mkdir(parents=True, exist_ok=True)
             except OSError as exc:
                 _log.warning("[graph_extract_cache] failed to create cache dir %s: %s", self._dir, exc)
                 self._enabled = False
@@ -64,9 +85,9 @@ class ExtractCache:
 
     def _path(self, sha: str, repo: str, relpath: str) -> Path:
         # File identity folded in as a digest (relpaths can contain chars
-        # awkward for filenames); `v2/` in case the key scheme ever changes.
+        # awkward for filenames); the version dir isolates key/payload schemes.
         ident = hashlib.md5(f"{repo}\x1f{relpath}".encode("utf-8")).hexdigest()
-        return self._dir / "v2" / f"{sha}-{ident}.joblib"
+        return self._dir / _CACHE_VERSION / f"{sha}-{ident}.joblib"
 
     def get(self, sha: str, repo: str, relpath: str) -> Optional[CanonicalBundle]:
         if not self._enabled or not sha:

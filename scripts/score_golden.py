@@ -154,7 +154,7 @@ def main() -> int:
     print(f"\nscope: {golden['scope']['leak_verdict_is_about']}")
 
     print("\n--- stage funnel " + "-" * 44)
-    for stage in ("pass_a", "signals", "reach", "paths", "pass_b", "pass_c", "pass_d"):
+    for stage in ("file_pass", "signals", "reach", "paths", "path_pass", "adversarial_pass"):
         if stage in result:
             payload = result[stage]
             print(f"{stage:<10} {json.dumps(payload, default=str)[:170]}")

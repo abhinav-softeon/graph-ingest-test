@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import contract, findings, pass_b, pass_d
+from analysis import contract, findings, path_pass, adversarial_pass
 
 
 class FakeStore:
@@ -78,12 +78,12 @@ class TestPathRendering:
         """The important one. A hole mid-chain must not be rendered — a partial
         chain invites the model to bridge the gap by assumption."""
         path = {"ids": ["a", "b"], "fqns": ["A#a", "B#b"]}
-        assert pass_b._render_path(0, path, {"a": _summary()}) is None
+        assert path_pass._render_path(0, path, {"a": _summary()}) is None
 
     def test_renders_when_complete(self):
         path = {"ids": ["a"], "fqns": ["A#a"], "sink_kinds": ["db_execute"],
                 "sink_names": ["Statement.execute"]}
-        text = pass_b._render_path(0, path, {"a": _summary(does="runs sql")})
+        text = path_pass._render_path(0, path, {"a": _summary(does="runs sql")})
         assert "PATH 0" in text and "runs sql" in text and "db_execute" in text
 
     def test_flags_unguaranteed_release(self):
@@ -93,7 +93,7 @@ class TestPathRendering:
         s = _summary(db={"acquires": True, "releases": True,
                          "released_in_finally": False, "executes_sql": False,
                          "sql_is_dynamic": False, "resources_leaked": ["conn"]})
-        text = pass_b._render_path(0, path, {"a": s})
+        text = path_pass._render_path(0, path, {"a": s})
         assert "release-NOT-guaranteed" in text
 
     def test_flags_dynamic_sql(self):
@@ -101,7 +101,7 @@ class TestPathRendering:
         s = _summary(db={"acquires": False, "releases": False,
                          "released_in_finally": False, "executes_sql": True,
                          "sql_is_dynamic": True, "resources_leaked": []})
-        assert "DYNAMIC" in pass_b._render_path(0, path, {"a": s})
+        assert "DYNAMIC" in path_pass._render_path(0, path, {"a": s})
 
     def test_surfaces_param_flow(self):
         """flows_to is what makes the join possible; if it stops reaching the
@@ -109,7 +109,7 @@ class TestPathRendering:
         path = {"ids": ["a"], "fqns": ["A#a"]}
         s = _summary(params=[{"name": "id", "flows_to": ["arg2 of dao.query"],
                              "validated": False}])
-        assert "arg2 of dao.query" in pass_b._render_path(0, path, {"a": s})
+        assert "arg2 of dao.query" in path_pass._render_path(0, path, {"a": s})
 
 
 class TestAdjudication:
@@ -121,35 +121,26 @@ class TestAdjudication:
     def test_lens_selection_by_kind(self):
         """A leak needs control-flow scrutiny; taint needs attacker-control and
         sanitization. Same panel size, different blind spots."""
-        assert "leak_control_flow" in pass_d._lenses_for(self._finding("resource_leak"))
-        assert "leak_control_flow" not in pass_d._lenses_for(self._finding("sql_injection"))
+        assert "leak_control_flow" in adversarial_pass._lenses_for(self._finding("resource_leak"))
+        assert "leak_control_flow" not in adversarial_pass._lenses_for(self._finding("sql_injection"))
 
     def test_every_lens_prompt_exists(self):
         for kind in ("resource_leak", "sql_injection"):
-            for lens in pass_d._lenses_for(self._finding(kind)):
-                assert lens in pass_d.LENSES
+            for lens in adversarial_pass._lenses_for(self._finding(kind)):
+                assert lens in adversarial_pass.LENSES
 
     def test_all_lens_prompts_ask_to_refute(self):
         """If a prompt ever drifts to 'confirm', uncertainty starts counting FOR
         the finding and the false-positive rate silently climbs."""
-        for lens, text in pass_d.LENSES.items():
+        for lens, text in adversarial_pass.LENSES.items():
             assert "refuted" in text.lower(), lens
             assert "wrong" in text.lower() or "refute" in text.lower(), lens
 
     def test_empty_input(self):
-        rep = pass_d.run_pass_d([])
+        rep = adversarial_pass.run_adversarial_pass([])
         assert rep.findings_in == 0 and rep.confirmed == 0
 
-    def test_pass_c_dismissals_carry_through(self):
-        """A finding refuted in Pass C with real source in hand must not be
-        resurrected by a panel that only sees summaries."""
-        dismissed = self._finding()
-        dismissed["dismissed"] = True
-        rep = pass_d.run_pass_d([dismissed])
-        assert rep.killed == 1 and rep.confirmed == 0
 
-
-class TestFingerprintAndDedupe:
     def test_fingerprint_tracks_sink_body_hash(self):
         """Same code -> same id (stays dismissed). Changed code -> new id
         (re-examined). That is the entire dismissal-memory design."""
@@ -188,7 +179,7 @@ class TestFingerprintAndDedupe:
     def test_rank_orders_by_severity_then_blast_radius(self):
         rows = [
             {"severity": "low", "reachable_from_count": 9, "path_ids": ["a"]},
-            {"severity": "critical", "reachable_from_count": 1, "path_ids": ["a"]},
+            {"certainty": "demonstrated", "impact": "exposure", "severity": "critical", "reachable_from_count": 1, "path_ids": ["a"]},
             {"severity": "high", "reachable_from_count": 1, "path_ids": ["a"]},
             {"severity": "high", "reachable_from_count": 7, "path_ids": ["a"]},
         ]
@@ -228,39 +219,33 @@ def test_verdict_schema_separates_defect_from_exploitable():
     assert "is_defect" in req and "exploitable" in req
 
 
-def test_pass_b_keeps_non_exploitable_defects_and_unresolved_verdicts():
+def test_path_pass_keeps_non_exploitable_defects_and_unresolved_verdicts():
     """The three reasons a verdict must survive Pass B. Gating on `exploitable`
     alone dropped the last two, which is why Pass C received zero findings while
     Pass B reported 35 needing expansion."""
     import inspect
-    from analysis import pass_b
-    src = inspect.getsource(pass_b.run_pass_b)
+    from analysis import path_pass
+    src = inspect.getsource(path_pass.run_path_pass)
     assert 'v.get("is_defect")' in src, "leaks are defects, not exploits"
     assert "unresolved" in src, "'cannot tell' must reach Pass C, not be discarded"
 
-
-def test_pass_c_confirms_on_either_flag():
-    import inspect
-    from analysis import pass_c
-    src = inspect.getsource(pass_c.run_pass_c)
-    assert 'verdict.get("is_defect")' in src
 
 
 def test_leak_lenses_exclude_attacker_control():
     """A leak involves no attacker-controlled data by definition, so that lens
     refutes every leak on a true but irrelevant technicality — and with
     majority-refute that is a standing vote against every leak."""
-    from analysis import pass_d
-    assert "attacker_control" not in pass_d._LEAK_LENSES
-    assert "attacker_control" in pass_d._TAINT_LENSES
-    for lens in pass_d._LEAK_LENSES:
-        assert lens in pass_d.LENSES, f"{lens} has no prompt"
+    from analysis import adversarial_pass
+    assert "attacker_control" not in adversarial_pass._LEAK_LENSES
+    assert "attacker_control" in adversarial_pass._TAINT_LENSES
+    for lens in adversarial_pass._LEAK_LENSES:
+        assert lens in adversarial_pass.LENSES, f"{lens} has no prompt"
 
 
 def test_every_lens_name_has_a_prompt():
-    from analysis import pass_d
-    for lens in set(pass_d._TAINT_LENSES) | set(pass_d._LEAK_LENSES):
-        assert lens in pass_d.LENSES
+    from analysis import adversarial_pass
+    for lens in set(adversarial_pass._TAINT_LENSES) | set(adversarial_pass._LEAK_LENSES):
+        assert lens in adversarial_pass.LENSES
 
 
 def test_leak_path_finding_gets_a_function_sink_not_none():
@@ -269,7 +254,7 @@ def test_leak_path_finding_gets_a_function_sink_not_none():
     both silent: fingerprint fell back to the FILE so dedup merged distinct defects
     in one file, and scoring could only credit them by sweeping the whole path, which
     inflates recall — 30 of 106 findings in one measured run."""
-    from analysis.pass_b import _to_finding
+    from analysis.path_pass import _to_finding
     leak = _to_finding({"kind": "resource_leak", "is_defect": True,
                         "_path": {"acquire_fqn": "com.x.Dao#load",
                                   "acquire_file": "x/Dao.java", "acquire_line": 12,

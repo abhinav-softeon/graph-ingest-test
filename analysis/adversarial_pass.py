@@ -224,7 +224,7 @@ def _vote_all(client, finding: dict, lenses: list[str]):
     return out, res
 
 
-def run_pass_d(findings: list[dict], model: str | None = None,
+def run_adversarial_pass(findings: list[dict], model: str | None = None,
                kill_on_tie: bool = True) -> PassDReport:
     """Adjudicate. A finding survives only if a majority of lenses fail to refute it.
 
@@ -247,12 +247,12 @@ def run_pass_d(findings: list[dict], model: str | None = None,
     # no-op into a crash.
     if not live:
         rep.seconds = time.monotonic() - t0
-        _log.info("[pass_d] nothing to adjudicate (%s finding(s), all already "
+        _log.info("[adversarial_pass] nothing to adjudicate (%s finding(s), all already "
                   "dismissed)", len(findings))
         return rep
 
-    client = get_client(model, pass_name="pass_d")
-    _log.info("[pass_d] adjudicating %s finding(s) (%s already dismissed in Pass C); "
+    client = get_client(model, pass_name="adversarial_pass")
+    _log.info("[adversarial_pass] adjudicating %s finding(s) (%s already dismissed in Pass C); "
               "model=%s", len(live), len(already_dismissed), model)
 
     votes: dict[int, list[tuple[str, dict]]] = {id(f): [] for f in live}
@@ -270,7 +270,7 @@ def run_pass_d(findings: list[dict], model: str | None = None,
             try:
                 result = fut.result()
             except Exception as exc:  # noqa: BLE001
-                _log.warning("[pass_d] vote raised: %s", exc)
+                _log.warning("[adversarial_pass] vote raised: %s", exc)
                 rep.errors.append(str(exc))
                 continue
             if single:
@@ -313,5 +313,5 @@ def run_pass_d(findings: list[dict], model: str | None = None,
             rep.confirmed_findings.append(finding)
 
     rep.seconds = time.monotonic() - t0
-    _log.info("[pass_d] done: %s", rep.summary())
+    _log.info("[adversarial_pass] done: %s", rep.summary())
     return rep

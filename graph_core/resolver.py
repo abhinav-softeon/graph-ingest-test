@@ -49,6 +49,18 @@ _log = get_logger(__name__)
 # constant strings. Bound once here; the values are identical, so output is
 # unchanged.
 _CONF_EXTRACTED = Confidence.EXTRACTED.value
+# Verb used by endpoints that serve every HTTP method (@WebServlet). Mirrors
+# extractors.java.SERVLET_ANY_METHOD; kept as a local constant so the resolver
+# does not import an extractor.
+_ANY_METHOD = "ANY"
+# Which File languages each cross-language file reference may resolve to. The
+# filter is the precision mechanism: without it `common.jsp` and `common.js`
+# compete for the same basename.
+_FILE_REF_LANGS = {
+    "RENDERS": frozenset({"jsp"}),
+    "INCLUDES_SCRIPT": frozenset({"javascript", "typescript", "tsx"}),
+    "INCLUDES_PAGE": frozenset({"jsp"}),
+}
 _CONF_INFERRED = Confidence.INFERRED.value
 _CONF_AMBIGUOUS = Confidence.AMBIGUOUS.value
 _ORIGIN_EXTRACTED = Origin.EXTRACTED.value
@@ -174,6 +186,7 @@ def resolve(
     # is exactly the old expression, since `or` falls through on an absent or
     # empty function list identically.
     funcs_by_name: dict[str, list[Node]] = defaultdict(list)
+    files_by_basename: dict[str, list[Node]] = defaultdict(list)
     # Precomputed once per Class/Function node here, instead of recomputed via
     # string-split/slice on every candidate on every ambiguous ref inside
     # narrow_call/narrow_type/_narrow_classes_for_recv below. For a Class node
@@ -188,6 +201,22 @@ def resolve(
                 funcs_by_name[n.name].append(n)
         if n.label == "Class":
             classes_by_name[n.name].append(n)
+        elif n.label == "File":
+            # Basename -> File nodes, for the cross-language file references
+            # (RENDERS / INCLUDES_SCRIPT / jsp:include). A basename is all the
+            # source ever carries: the paths are built as
+            # `CONSTANT_PREFIX + "page.jsp"`, so the directory lives in a Java or
+            # JS constant that is not resolvable here. Node.name is already the
+            # basename for every extractor.
+            files_by_basename[n.name].append(n)
+
+    # Class fqn -> Class node, for a target that arrives fully qualified (a JS
+    # HANDLED_BY literal naming its handler outright). Exact beats the simple-name
+    # index, which cannot separate two same-named classes in different packages.
+    classes_by_fqn: dict[str, Node] = {}
+    for n in nodes:
+        if n.label == "Class" and n.fqn:
+            classes_by_fqn.setdefault(n.fqn, n)
 
     # Read once, not per ref: resolve() handles millions of them.
     _name_cap = name_match_max_candidates()
@@ -255,11 +284,15 @@ def resolve(
     # `/api/users/42` resolves to the server's `/api/users/{id}`.
     endpoints_by_key: dict[tuple[str, str], list[Node]] = defaultdict(list)
     endpoint_patterns: dict[str, list[tuple[list[str], Node]]] = defaultdict(list)
+    # Route -> endpoints, verb ignored. Backs match_endpoints' verb-agnostic
+    # fallback with a dict probe instead of a walk over endpoints_by_key.
+    endpoints_by_route: dict[str, list[Node]] = defaultdict(list)
     for n in nodes:
         if n.label != "Endpoint":
             continue
         method, route = match_key(n.method, n.route)
         endpoints_by_key[(method, route)].append(n)
+        endpoints_by_route[route].append(n)
         if "*" in route:
             endpoint_patterns[method].append((_route_segments(route), n))
 
@@ -267,6 +300,23 @@ def resolve(
         exact = endpoints_by_key.get((method, route))
         if exact:
             return exact
+        # Verb-agnostic fallback. A servlet registered by @WebServlet serves EVERY
+        # verb, so it is stored under ANY (see java.py SERVLET_ANY_METHOD); a
+        # caller that knows its verb would miss it on the exact key above, and a
+        # caller that does not know its verb sends ANY and would miss a
+        # verb-specific Spring route. Trying both directions is what lets one
+        # index hold both conventions.
+        if method != _ANY_METHOD:
+            any_hit = endpoints_by_key.get((_ANY_METHOD, route))
+            if any_hit:
+                return any_hit
+        else:
+            # Precomputed, NOT a scan over endpoints_by_key: this runs once per
+            # CALLS_API ref, and a repo with thousands of servlets would turn a
+            # dict probe into a full index walk per call site.
+            any_route = endpoints_by_route.get(route)
+            if any_route:
+                return any_route
         caller = _route_segments(route)
         hits = []
         for segs, ep in endpoint_patterns.get(method, []):
@@ -923,6 +973,74 @@ def resolve(
                     ))
                 out_edges.append(make_edge(ref, eid, conf, strategy=strat))
                 cov.resolved += 1
+            return
+
+        # Cross-language file references, all three resolved the same way: by
+        # BASENAME against File nodes, narrowed to the language the edge can
+        # legitimately target.
+        #
+        #   RENDERS          Java method -> the .jsp it forwards to
+        #   INCLUDES_SCRIPT  .jsp page   -> the .js it loads
+        #   INCLUDES_PAGE    .jsp page   -> a <%@ include %>d page
+        #
+        # A basename is all the source carries — every one of these paths is
+        # assembled from a constant prefix plus a literal filename, so the
+        # directory is not statically available. The language filter is what keeps
+        # that safe: `common.js` and `common.jsp` cannot be confused, and a
+        # RENDERS ref can never land on a JS file.
+        if ref.type in ("RENDERS", "INCLUDES_SCRIPT", "INCLUDES_PAGE"):
+            if ref.kind_hint != "file":
+                cov.external += 1
+                return
+            wanted_langs = _FILE_REF_LANGS.get(ref.type)
+            candidates = files_by_basename.get(ref.target_name) or []
+            if wanted_langs:
+                candidates = [c for c in candidates if c.lang in wanted_langs]
+            # Same-directory preference. Two pages named `index.jsp` in different
+            # folders is routine in a webapp, and the one in the referrer's own
+            # directory is overwhelmingly the intended target — this is the
+            # file-level analogue of narrow_call's same_file step.
+            strategy = "file_basename"
+            if len(candidates) > 1 and ref.ref_file:
+                ref_dir = ref.ref_file.replace("\\", "/").rpartition("/")[0]
+                same_dir = [
+                    c for c in candidates
+                    if (c.file or "").replace("\\", "/").rpartition("/")[0] == ref_dir
+                ]
+                if same_dir:
+                    candidates, strategy = same_dir, "file_same_dir"
+            emit(
+                ref,
+                cov,
+                candidates,
+                _CONF_EXTRACTED,
+                known_in_repo=bool(files_by_basename.get(ref.target_name)),
+                strategy=strategy,
+            )
+            return
+
+        # A JS call naming its Java handler class outright — the strongest
+        # cross-language signal available, because no URL, convention or route
+        # table sits in between. Exact FQN first (the AJAX-handler form spells the
+        # whole package), then the bare simple name (the form-action form, whose
+        # package lives in a JS constant this resolver cannot read).
+        if ref.type == "HANDLED_BY":
+            exact = classes_by_fqn.get(ref.target_name)
+            if exact is not None:
+                out_edges.append(make_edge(
+                    ref, exact.id, _CONF_EXTRACTED, strategy="handler_fqn",
+                ))
+                cov.resolved += 1
+                return
+            tail = _tail_name(ref.target_name)
+            emit(
+                ref,
+                cov,
+                classes_by_name.get(tail) or [],
+                _CONF_INFERRED,
+                known_in_repo=bool(classes_by_name.get(tail)),
+                strategy="handler_name",
+            )
             return
 
         # ("CALLS", "PASSES") until PASSES was removed — no extractor ever emitted

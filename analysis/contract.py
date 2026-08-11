@@ -61,12 +61,64 @@ RISK_REASONS = ["builds_sql_dynamically", "manual_resource_handling", "auth_chec
 # cannot express it.
 RESOURCE_TYPES = ["Connection", "Statement", "ResultSet", "Session", "Stream", "none"]
 
+# THE TWO AXES SEVERITY IS COMPUTED FROM — and why severity itself is not a field
+# any model fills in.
+#
+# Asking a model "how bad is this?" fails the same way as asking "is this function
+# important?": it has no baseline to compare against, so it inflates, and the
+# label cannot be re-tuned without paying for the whole repo again. The rule
+# everywhere else in this pipeline is that the MODEL OBSERVES and the CODE JUDGES
+# (see priority.py on risk.reasons); a model-assigned severity was the last place
+# violating it.
+#
+# Both of these are answerable by someone reading the code. priority.severity()
+# turns them into critical/high/medium/low, which means the rubric lives in a
+# table that backfill_signals() can re-apply for free.
+#
+# It also collapses a real inconsistency: findings used to carry `confidence` and
+# path verdicts carried `severity`, so the two could not be ranked against each
+# other. CERTAINTY *is* confidence — one axis now does both jobs, for findings
+# from every source.
+CERTAINTY = ["demonstrated", "probable", "speculative"]
+IMPACT = ["exposure", "integrity", "correctness", "quality"]
+
+_CERTAINTY_DESC = (
+    "How sure are you this is real? demonstrated - you can point at the code that "
+    "does it. probable - the conditions look reachable but you have not shown it. "
+    "speculative - you are inferring. Answer honestly; understating certainty is "
+    "not penalised, and a later stage re-checks everything."
+)
+_IMPACT_DESC = (
+    "What is at stake if it does happen. exposure - secrets, attacker-controlled "
+    "data, or code execution. integrity - corrupted data, a security weakness, or "
+    "a leaked resource. correctness - the code does the wrong thing. quality - it "
+    "works and could be better: slow, duplicated, dead, unclear. `quality` is a "
+    "normal and frequent answer, and never urgent."
+)
+
 _SUMMARY = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["id", "does", "params", "returns", "calls", "db", "touches",
-                 "source", "risk", "guards",
-                 "fields_read", "fields_written", "findings", "uncertain"],
+    # EVERY FIELD HERE HAS A CONSUMER. Six were removed once path_pass began
+    # reading real source, because each was answering a question something else
+    # now answers better:
+    #   params[].flows_to  the param -> callee-arg mapping existed so Pass B could
+    #                      thread taint WITHOUT seeing code. path_pass reads the
+    #                      bodies now and traces the parameter itself, with the
+    #                      source in front of it.
+    #   calls[]            the graph has every call at 99.98% from bytecode. This
+    #                      was only ever a hallucination diagnostic
+    #                      (unknown_callee_rate), not production data.
+    #   returns            signature-level, already on the node.
+    #   risk{}             almost entirely duplication: builds_sql_dynamically IS
+    #                      db.sql_is_dynamic, manual_resource_handling IS
+    #                      db.acquires, and reflection/deserialization/
+    #                      spawns_process are all in touches[].
+    #   uncertain[]        the source-expansion trigger, and that stage is gone.
+    #   fields_read/written  measured: zero consumers anywhere in analysis/.
+    # Output was ~1,480 tokens per function; these are the bulk of it.
+    "required": ["id", "does", "contracts", "db", "touches", "source", "guards",
+                 "findings"],
     "properties": {
         "id": {
             "type": "string",
@@ -76,43 +128,70 @@ _SUMMARY = {
             "type": "string",
             "description": "What this function does, one sentence. No preamble.",
         },
-        "params": {
-            "type": "array",
-            "description": "One entry per parameter, in declaration order.",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["name", "flows_to", "validated"],
-                "properties": {
-                    "name": {"type": "string"},
-                    "flows_to": {
-                        "type": "array",
-                        "description": (
-                            "Where this parameter's value ends up. Use exactly these "
-                            "forms: 'return', 'field:<fieldName>', "
-                            "'arg<N> of <callee>', 'sql', 'exec', 'file', "
-                            "'response', 'discarded'. Empty if it goes nowhere."
-                        ),
-                        "items": {"type": "string"},
-                    },
-                    "validated": {
-                        "type": "boolean",
-                        "description": "Is this parameter checked, escaped or parameterized before use?",
-                    },
+        # WHY THIS BLOCK IS SEPARATE FROM `returns`
+        # `returns` is prose — useful in a report, useless in a query. These are the
+        # same observations as booleans and name lists so Cypher can JOIN on them:
+        # the callee's promise lives on the callee node, the caller's handling lives
+        # on the caller node, and analysis/join.py matches the two across a CALLS
+        # edge. Neither side can see the other (they are usually different files),
+        # which is exactly why the graph has to be the meeting point.
+        #
+        # LISTS OF STRINGS, NOT JSON. Cypher cannot read into a JSON string — that
+        # limitation is the entire reason priority.py exists — but it can test
+        # membership in a list property. Anything here that a query must filter on
+        # has to stay a scalar or a flat list.
+        "contracts": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["may_return_null", "null_condition", "returns_sentinel",
+                         "unguarded_calls", "swallowed_exception_calls"],
+            "properties": {
+                "may_return_null": {
+                    "type": "boolean",
+                    "description": (
+                        "Can this function return null on ANY path? A bare `return "
+                        "null;` anywhere in the body makes this TRUE, including on an "
+                        "error or not-found branch. Nearly mechanical — read it off "
+                        "the code, do not reason about whether callers cope."
+                    ),
+                },
+                "null_condition": {
+                    "type": "string",
+                    "description": (
+                        "When it returns null, in a few words ('when the key is "
+                        "absent'). Empty string if may_return_null is false."
+                    ),
+                },
+                "returns_sentinel": {
+                    "type": "string",
+                    "description": (
+                        "A non-null failure value callers must check, e.g. '-1', '0', "
+                        "'empty list', 'false'. Empty string if there is none. A "
+                        "sentinel nobody checks is the same bug as an unchecked null."
+                    ),
+                },
+                "unguarded_calls": {
+                    "type": "array",
+                    "description": (
+                        "Method names called HERE whose return value this body uses "
+                        "WITHOUT first checking it for null — dereferenced, passed on, "
+                        "or returned. Bare method name as written, no class prefix. "
+                        "Omit a call if the result is null-checked by any means: an if, "
+                        "an early return, a ternary, or a validation helper. Omit calls "
+                        "whose result is discarded. Empty is a common answer."
+                    ),
+                    "items": {"type": "string"},
+                },
+                "swallowed_exception_calls": {
+                    "type": "array",
+                    "description": (
+                        "Method names whose exceptions this body catches and then "
+                        "ignores — an empty catch, or one that only logs and continues "
+                        "as if the call had succeeded. Empty if none."
+                    ),
+                    "items": {"type": "string"},
                 },
             },
-        },
-        "returns": {
-            "type": "string",
-            "description": "What the return value is, or 'void'. Note if it returns a Connection.",
-        },
-        "calls": {
-            "type": "array",
-            "description": (
-                "Names of functions/methods called in this body, as written in the "
-                "source. Cross-checked against the graph — do not guess."
-            ),
-            "items": {"type": "string"},
         },
         "db": {
             "type": "object",
@@ -202,26 +281,6 @@ _SUMMARY = {
                 },
             },
         },
-        "risk": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["reasons", "notes"],
-            "properties": {
-                "reasons": {
-                    "type": "array",
-                    "description": (
-                        "Which of these are OBSERVABLY TRUE of this body. Report what you "
-                        "see, not how dangerous you think the function is — the ranking is "
-                        "computed elsewhere. ['none'] is a common and correct answer."
-                    ),
-                    "items": {"type": "string", "enum": RISK_REASONS},
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "One sentence on the riskiest aspect, or empty string.",
-                },
-            },
-        },
         "guards": {
             "type": "object",
             "additionalProperties": False,
@@ -259,44 +318,148 @@ _SUMMARY = {
                 },
             },
         },
-        "fields_read": {"type": "array", "items": {"type": "string"}},
-        "fields_written": {"type": "array", "items": {"type": "string"}},
         "findings": {
             "type": "array",
-            "description": "Defects visible in THIS body alone. Empty is a valid and common answer.",
+            "description": (
+                "Defects visible in THIS body alone — report every one you see, do not "
+                "filter for importance. Empty is a valid and common answer."
+            ),
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["kind", "line", "detail", "confidence"],
+                "required": ["kind", "line", "detail", "certainty", "impact"],
                 "properties": {
+                    # WIDENED DELIBERATELY. A single-file read is the only pass that
+                    # will ever look at most of this repo, and the marginal cost of one
+                    # more check is zero once the file is in context — so the enum
+                    # covers everything findable without leaving the file rather than
+                    # only the classes the path analysis also chases.
+                    #
+                    # Kept as an ENUM rather than free text because priority.py has to
+                    # rank on it and findings.py has to dedupe on it; 'other' is the
+                    # escape hatch, but anything landing there repeatedly is a missing
+                    # enum member, not a successful catch-all.
                     "kind": {
                         "type": "string",
-                        "enum": ["sql_injection", "resource_leak", "command_injection",
-                                 "path_traversal", "deserialization", "xss",
-                                 "correctness", "concurrency", "error_handling", "other"],
+                        "enum": [
+                            # injection and untrusted input
+                            "sql_injection", "command_injection", "path_traversal",
+                            "deserialization", "xss", "xxe", "ssrf", "open_redirect",
+                            "log_injection",
+                            # secrets and crypto
+                            "hardcoded_secret", "weak_crypto", "weak_random",
+                            "tls_verification_disabled",
+                            # session, auth, transport
+                            "missing_authn", "missing_authz", "session_fixation",
+                            "insecure_cookie", "sensitive_data_logged",
+                            # resources and lifetime
+                            "resource_leak",
+                            # correctness and runtime
+                            "null_dereference", "correctness", "concurrency",
+                            "error_handling", "debug_code",
+                            # NOT defects — code that works and could be better.
+                            # These exist so an optimization has somewhere to go
+                            # other than 'other'; impact='quality' keeps them from
+                            # ever outranking a security finding.
+                            "performance", "duplication", "dead_code", "complexity",
+                            "other",
+                        ],
                     },
                     "line": {"type": "integer", "description": "Absolute line number in the file."},
                     "detail": {"type": "string", "description": "What is wrong and why it matters."},
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "certainty": {"type": "string", "enum": CERTAINTY,
+                                  "description": _CERTAINTY_DESC},
+                    "impact": {"type": "string", "enum": IMPACT,
+                               "description": _IMPACT_DESC},
                 },
             },
         },
-        "uncertain": {
-            "type": "array",
-            "description": (
-                "What you could not determine from this file alone, and what you would "
-                "need to see. Drives targeted expansion — prefer saying this over guessing."
-            ),
-            "items": {"type": "string"},
-        },
     },
 }
+
+# --- wire shape: the same contract, two layers deep ------------------------
+# Amazon Nova's constrained decoding guarantees valid JSON against the schema it
+# is given, but AWS is explicit that schemas should be limited to TWO LAYERS OF
+# NESTING for best performance, and warns that the smaller models struggle on
+# large complex ones. _SUMMARY as authored is four deep:
+#
+#     root -> summaries[] -> summary -> db{} -> boolean
+#
+# Rather than maintain two hand-written schemas that would drift apart on the
+# first edit, the nested definition above stays the single source of truth and
+# the wire shape is DERIVED from it: the five grouping objects are spliced into
+# prefixed scalars on the summary itself, taking it to exactly two layers.
+#
+#     db.released_in_finally  ->  db_released_in_finally
+#     contracts.unguarded_calls -> contract_unguarded_calls
+#
+# `params` and `findings` stay arrays of objects — a third layer for those two
+# only. They cannot be flattened without losing the per-item association that is
+# their entire value, and the guidance is about performance rather than a limit.
+#
+# nest() puts the response back into the nested shape immediately on receipt, so
+# priority.derive_signals, path_pass's renderer, single_file and every stored
+# summary see exactly what they saw before. The flattening is a wire concern and
+# stops at the edge.
+_FLATTEN = {"db": "db_", "source": "src_",
+            "guards": "guard_", "contracts": "contract_"}
+
+# Prefixed name -> (block, original key). Built once; drives nest() so the two
+# directions cannot disagree.
+_FLAT_TO_NESTED: dict[str, tuple[str, str]] = {}
+
+
+def _flatten_schema(nested: dict) -> dict:
+    props: dict = {}
+    required: list[str] = []
+    for name in nested["required"]:
+        spec = nested["properties"][name]
+        prefix = _FLATTEN.get(name)
+        if prefix is None:
+            props[name] = spec
+            required.append(name)
+            continue
+        for sub in spec["required"]:
+            flat = f"{prefix}{sub}"
+            props[flat] = spec["properties"][sub]
+            required.append(flat)
+            _FLAT_TO_NESTED[flat] = (name, sub)
+    # Long free-text fields last, per AWS's tool-schema guidance: "place long
+    # string arguments last in the schema and avoid nesting them".
+    tail = [k for k in ("does", "contract_null_condition")
+            if k in props]
+    ordered = {k: v for k, v in props.items() if k not in tail}
+    ordered.update({k: props[k] for k in tail})
+    return {"type": "object", "additionalProperties": False,
+            "required": required, "properties": ordered}
+
+
+_SUMMARY_FLAT = _flatten_schema(_SUMMARY)
+
+
+def nest(row: dict) -> dict:
+    """Flat wire row -> the nested shape every consumer already expects.
+
+    Unknown keys pass through untouched rather than being dropped: a model that
+    returns something outside the schema is a bug worth seeing in validation, not
+    one worth silently swallowing here.
+    """
+    out: dict = {}
+    for key, value in row.items():
+        target = _FLAT_TO_NESTED.get(key)
+        if target is None:
+            out[key] = value
+            continue
+        block, sub = target
+        out.setdefault(block, {})[sub] = value
+    return out
+
 
 SUMMARY_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": ["summaries"],
-    "properties": {"summaries": {"type": "array", "items": _SUMMARY}},
+    "properties": {"summaries": {"type": "array", "items": _SUMMARY_FLAT}},
 }
 
 # Bump whenever _SUMMARY changes shape. body_hash detects stale CONTENT; it cannot
@@ -308,7 +471,14 @@ SUMMARY_SCHEMA = {
 #
 # 1 -> 2: added source{}, risk{}, guards{}, db.throws_between_acquire_and_release,
 #         db.resource_types.
-SCHEMA_VERSION = 2
+# 2 -> 3: added contracts{} (the join fields — may_return_null, unguarded_calls,
+#         returns_sentinel, swallowed_exception_calls) and widened findings.kind
+#         from 10 members to 25. The contracts block is the one that MUST force a
+#         re-summarize: join.py returns nothing at all for a node that lacks it,
+#         and "no contract mismatches" is indistinguishable from "never asked".
+# 3 -> 4: findings[].confidence replaced by certainty{} + impact{}; severity is
+#         now computed in priority.severity() rather than assigned by the model.
+SCHEMA_VERSION = 5
 
 
 class ValidationError(Exception):
@@ -360,6 +530,11 @@ def validate(payload: dict, expected_ids: list[str],
             f"{len(missing)} requested function(s) missing from the response: "
             f"{sorted(missing)[:5]}"
         )
+    # Re-nest at the boundary. Everything past this line — the stored summary,
+    # derive_signals, the path renderer — works on the shape it always did; only
+    # the wire is flat. Checked AFTER nesting so _check_blocks keeps asking the
+    # question it was written to ask.
+    rows = [nest(row) for row in rows]
     _check_blocks(rows)
     return rows
 
@@ -367,7 +542,7 @@ def validate(payload: dict, expected_ids: list[str],
 # Blocks whose absence is silent rather than loud: derive_signals() defaults every
 # one of them to "inert", so a response that omits them produces summaries that
 # validate, store, and read as "nothing interesting here" for the whole repo.
-_SIGNAL_BLOCKS = ("source", "risk", "guards", "db")
+_SIGNAL_BLOCKS = ("source", "guards", "db", "contracts")
 
 
 def _check_blocks(rows: list[dict]) -> None:
@@ -403,7 +578,8 @@ def _check_blocks(rows: list[dict]) -> None:
 _PATH_VERDICT = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["path_index", "exploitable", "is_defect", "kind", "severity",
+    "required": ["path_index", "exploitable", "is_defect", "kind",
+                 "certainty", "impact",
                  "sanitized_at", "reasoning", "evidence", "need_source_for"],
     "properties": {
         "path_index": {"type": "integer", "description": "The index shown in the request."},
@@ -437,32 +613,13 @@ _PATH_VERDICT = {
             "enum": ["sql_injection", "resource_leak", "command_injection",
                      "path_traversal", "deserialization", "xss", "none"],
         },
-        "severity": {
-            "type": "string",
-            "enum": ["critical", "high", "medium", "low", "none"],
-            "description": (
-                "How bad this is, on a rubric with no overlap between levels. Pick by "
-                "CERTAINTY first, then impact — the difference between critical and "
-                "high is whether it definitely happens, and the difference between "
-                "high and medium is whether you are speculating.\n"
-                "critical - certain. You KNOW this breaks: the code cannot work, or a "
-                "credential/API key/secret is exposed, or it is an unambiguous "
-                "exploitable vulnerability. No conditions attached.\n"
-                "high - serious but conditional. A security weakness, or a resource "
-                "left unclosed, that WILL cause a failure when the wrong thing "
-                "happens. Real, just not guaranteed on every run.\n"
-                "medium - the same class of problem as high, but SPECULATIVE. You "
-                "cannot show the conditions are reachable, or you are inferring "
-                "rather than pointing at it.\n"
-                "low - improvements and optimizations. Correct code that could be "
-                "better: clarity, efficiency, duplication, defensive gaps.\n"
-                "none - not a defect at all.\n"
-                "Do NOT map severity onto kind. Every injection is not automatically "
-                "critical and every leak is not automatically high — a leak on a path "
-                "nothing reaches is medium at most, and an injection whose input is "
-                "demonstrably attacker-controlled and unsanitized is critical."
-            ),
-        },
+        # Same two axes as findings[], so a path verdict and a single-file
+        # finding can be ranked against each other. path_pass computes `severity`
+        # from these via priority.severity() before the finding is stored, which
+        # is why findings.py and adversarial_pass still read a `severity` field
+        # they never have to know is derived.
+        "certainty": {"type": "string", "enum": CERTAINTY, "description": _CERTAINTY_DESC},
+        "impact": {"type": "string", "enum": IMPACT, "description": _IMPACT_DESC},
         "sanitized_at": {
             "type": "string",
             "description": "Function on the path that neutralizes the flow, or '' if none does.",

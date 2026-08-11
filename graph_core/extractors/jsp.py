@@ -71,6 +71,21 @@ _EL_RE = re.compile(r"[$#]\{([^}]*)\}")
 _EL_PROPERTY_RE = re.compile(r"\b(\w+)\.(\w+)")
 _IDENT_SAFE_RE = re.compile(r"[^0-9A-Za-z_]")
 
+# `<script src="...">`, any case, quoted or bare. The page's client-side half.
+_SCRIPT_SRC_RE = re.compile(
+    r"""<\s*script\b[^>]*?\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""",
+    re.IGNORECASE | re.DOTALL,
+)
+# A .js filename inside that attribute. Extracted as a TOKEN rather than taking
+# the attribute whole, because the attribute is almost never a plain path:
+#
+#   <SCRIPT src="<%=BaseConstant.BASE_SCRIPT_ADHOC_URL%>quicksearch.js<%=BROWSER_CACHE_VERSION%>">
+#
+# The directory comes from a Java constant and a cache-buster follows the
+# extension, so the only stable part is the filename in the middle. Matching
+# `[\w.-]+\.js` picks exactly that and ignores both `<%= %>` blocks.
+_JS_FILE_RE = re.compile(r"([A-Za-z0-9_][A-Za-z0-9_.\-]*\.js)\b")
+
 
 def _attrs(raw: str) -> dict:
     return {m.group(1).lower(): m.group(2)[1:-1] for m in _ATTR_RE.finditer(raw)}
@@ -87,6 +102,7 @@ class JspTranslation:
     includes: list = field(default_factory=list)    # (path, jsp_line, kind)
     beans: list = field(default_factory=list)       # (id, class_name, jsp_line)
     taglibs: list = field(default_factory=list)     # (prefix, uri, jsp_line)
+    scripts: list = field(default_factory=list)     # (js_filename, jsp_line)
     el_calls: list = field(default_factory=list)    # (receiver, class, getter, jsp_line)
     el_expressions: int = 0
     scriptlet_lines: int = 0
@@ -205,6 +221,19 @@ def translate(source: str, relpath: str) -> JspTranslation:
             cls = attrs.get("class") or attrs.get("type")
             if cls:
                 tr.beans.append((attrs.get("id", ""), cls, jsp_line))
+
+    # `<script src>` — the JSP -> JS hop. Scanned off the RAW MARKUP, not the
+    # synthetic Java, because a script tag is markup: it never reaches the
+    # translation unit, so nothing downstream would ever see it. This module read
+    # only `<% %>` segments before, which is why a page's JS was invisible.
+    seen_scripts: set = set()
+    for match in _SCRIPT_SRC_RE.finditer(source):
+        attr = match.group(1).strip("\"'")
+        jsp_line = source.count("\n", 0, match.start()) + 1
+        for js_name in _JS_FILE_RE.findall(attr):
+            if js_name not in seen_scripts:
+                seen_scripts.add(js_name)
+                tr.scripts.append((js_name, jsp_line))
 
     # EL property access is a real getter call at runtime: `${cart.total}`
     # invokes cart.getTotal(). Bound only when the receiver is a declared bean,
@@ -338,8 +367,16 @@ def extract(file: FileInfo, repo: str):
         name = os.path.basename(target.split("?", 1)[0].replace("\\", "/"))
         if name:
             refs.append(RawRef(
-                "USES", file_id, name, "file",
+                "INCLUDES_PAGE", file_id, name, "file",
                 ref_file=file.relpath, ref_line=jsp_line, ref_col=0,
             ))
+
+    # File -> File, not Function -> File: a script tag belongs to the page, not
+    # to any one scriptlet, and the browser loads it for the whole page.
+    for js_name, jsp_line in tr.scripts:
+        refs.append(RawRef(
+            "INCLUDES_SCRIPT", file_id, js_name, "file",
+            ref_file=file.relpath, ref_line=jsp_line, ref_col=0,
+        ))
 
     return nodes, edges, refs
