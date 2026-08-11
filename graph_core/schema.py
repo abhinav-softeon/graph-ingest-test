@@ -63,12 +63,9 @@ EDGE_TYPES = {
     #                    `<script src="<%=PREFIX%>foo.js">`
     #   INCLUDES_PAGE    File(jsp) -> File(jsp)
     #                    `<%@ include file="..." %>` / `<jsp:include|forward>`.
-    #                    Its own type rather than reusing USES: USES means
-    #                    "component-level dependency, too coarse to act on" and is
-    #                    dropped for that reason, while a page include is an exact,
-    #                    actionable fact (3,816 pages use one). Overloading one
-    #                    name for both would make "is this edge trustworthy?"
-    #                    unanswerable from the type alone.
+    #                    3,816 pages in the target app use one, and it is an exact
+    #                    fact, so it gets its own name instead of being folded into
+    #                    the old catch-all USES (now deleted — it had no producer).
     #   HANDLED_BY       Function(js) -> Class(java)
     #                    an AJAX handler named by FQN, or a form action naming a
     #                    servlet class directly. Distinct from CALLS_API because
@@ -79,7 +76,17 @@ EDGE_TYPES = {
     "HANDLED_BY",
     # Flexible dependency layer (additive, lower-trust by default)
     "REFERENCES",   # generic symbol use when stricter typing is unavailable
-    "USES",         # higher-level/component dependency
+    # "USES" (component/module dependency) was removed. It was reserved for a
+    # module-level aggregation that was never built — see the closing comment in
+    # cypher_derive_reference.py, which calls it a research task — so NO extractor
+    # ever emitted one, in any language. Its only near-use was JSP page includes,
+    # which now have INCLUDES_PAGE: an exact fact deserves its own name rather
+    # than a type whose documented meaning is "too coarse to act on".
+    #
+    # Delisting is safe precisely BECAUSE nothing emits it. assert_edge raises on
+    # an unknown type, so a delisted type that something still produced would be a
+    # write-time crash, not a silent no-op — that is the check that makes this
+    # reversible: re-add the string and the type works again.
     # Function -> External. A call whose target is a library/JDK type, so no
     # in-repo Function can ever be the destination. Previously such calls were
     # either fanned out across every same-named method (100% false) or, after
@@ -143,12 +150,8 @@ DROPPED_EDGE_TYPES = frozenset({
     "THROWS",           # in the throws clause / throw statement being read
     "CATCHES",          # in the catch block being read
     "REFERENCES",       # "related somehow" — the resolver's lowest-trust fallback
-    # USES stays dropped, and it has NO PRODUCER AT ALL: nothing in any extractor
-    # emits it (verified by grep across graph_core/ingest/analysis). The
-    # component/module aggregation it was reserved for was never built — see the
-    # closing comment in cypher_derive_reference.py, which calls it a research
-    # task. JSP page includes, its only near-use, now have INCLUDES_PAGE instead.
-    "USES",
+    # USES was listed here. It is now deleted from EDGE_TYPES outright (see the
+    # note there) — a type with no producer does not need a filter entry.
     "BELONGS_TO",       # Module ownership; modules are not part of this analysis
     "RE_EXPORTS",       # JS/TS export forwarding
     "EMITS_EVENT",      # event/queue layer, unused here
