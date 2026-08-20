@@ -194,6 +194,33 @@ class TestExtraction:
         pages = {r.target_name for r in refs if r.type == "INCLUDES_PAGE"}
         assert {"header.jspf", "done.jsp"} <= pages
 
+    def test_script_src_in_every_attribute_shape(self):
+        """The JSP -> JS hop, in all four shapes the attribute really takes.
+
+        Quoted and on one line is what a fixture reaches for, and for a long time
+        the only shape that worked. Real pages build the src from a Java constant,
+        and when the value is left unquoted the expression is free to wrap —
+        putting the filename on the continuation line, past the first space where
+        a bare run-of-non-space match ended. Such a page reported no scripts at
+        all, which is the dangerous failure: an empty list reads as "loads no JS",
+        not as "could not parse this".
+        """
+        body = (
+            '<html><head>\n'
+            '<script src="js/plain.js"></script>\n'
+            '<SCRIPT src="<%=CONST%>quoted-expr.js<%=VER%>"></SCRIPT>\n'
+            '<script src=<%=CONST+"bare-oneline.js"+VER%>></script>\n'
+            '<SCRIPT language="Javascript"\n'
+            '\tsrc=<%=CONST\n'
+            '\t\t\t+ "bare-wrapped.js"+VER%>></SCRIPT>\n'
+            '<SCRIPT src="<%=CONST + "nested-quotes.js"+VER%>"></SCRIPT>\n'
+            '</head></html>\n'
+        )
+        _nodes, _edges, refs, _fi = _extract_one("v/scripts.jsp", body)
+        found = {r.target_name for r in refs if r.type == "INCLUDES_SCRIPT"}
+        assert found == {"plain.js", "quoted-expr.js", "bare-oneline.js",
+                         "bare-wrapped.js", "nested-quotes.js"}
+
     def test_declarations_become_fields(self):
         nodes, _edges, _refs, _fi = _extract_one()
         fields = {n.name for n in nodes if n.label == "Field"}

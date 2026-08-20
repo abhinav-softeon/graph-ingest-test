@@ -49,9 +49,16 @@ public class OrderServlet extends ValidateAccess {
 }
 """
 
+# Two script tags, because the attribute has two shapes in the wild and only the
+# first one used to be read. The second is unquoted and its expression breaks
+# across lines, putting the filename past the first space — 906 pages in the
+# ARAMEX tree load their JS that way and every one of them looked script-less.
 _PAGE = """<%@ page import="com.acme.OrderService" %>
 <HTML><HEAD>
 <SCRIPT src="<%=BaseConstant.BASE_SCRIPT_DEMO_URL%>order-list.js<%=BROWSER_CACHE_VERSION%>"></SCRIPT>
+<SCRIPT language="Javascript"
+	src=<%=BaseConstant.BASE_SCRIPT_DEMO_URL
+					+ "order-detail.js"+BROWSER_CACHE_VERSION%>></SCRIPT>
 </HEAD><BODY>
 <% OrderService svc = new OrderService(); %>
 </BODY></HTML>
@@ -65,6 +72,16 @@ _SCRIPT = """function loadOrders() {
 function submitForm() {
     document.frm.action = BASE_SERVLET_DEMO_URL + "OrderServlet";
     document.frm.submit();
+}
+function openRevision(params) {
+    var sURL = BASE_SERVLET_DEMO_URL + "OrderServlet?" + trim(params);
+    showPopup(1000, 650, WAVE, sURL);
+}
+"""
+
+_DETAIL_SCRIPT = """function showDetail(id) {
+    var el = document.getElementById("detail");
+    el.innerHTML = id;
 }
 """
 
@@ -82,6 +99,7 @@ def _corpus(tmp: str) -> tuple[list, list, list]:
         "WEB-INF/classes/com/acme/demo/ajax/OrderAJAXHandler.java": _HANDLER,
         "scm/demo/orderlist.jsp": _PAGE,
         "scm/demo/js/order-list.js": _SCRIPT,
+        "scm/demo/js/order-detail.js": _DETAIL_SCRIPT,
     }
     for rel, body in layout.items():
         path = os.path.join(tmp, *rel.split("/"))
@@ -126,11 +144,20 @@ def test_the_three_links_resolve():
         # JSP -> JS, with the filename embedded between two <%= %> blocks.
         assert ("orderlist.jsp", "order-list.js") in _pairs(
             nodes, out_edges, "INCLUDES_SCRIPT")
+        # Same hop, unquoted `src=<%= ... %>` broken across lines. Matching the
+        # bare value as a run of non-space characters stops at the newline and
+        # silently yields NO script edge rather than a wrong one.
+        assert ("orderlist.jsp", "order-detail.js") in _pairs(
+            nodes, out_edges, "INCLUDES_SCRIPT")
         # JS -> Java, both spellings: the fully-qualified AJAX handler and the
         # bare servlet class named by a form action.
         handled = _pairs(nodes, out_edges, "HANDLED_BY")
         assert ("loadOrders", "OrderAJAXHandler") in handled
         assert ("submitForm", "OrderServlet") in handled
+        # Third spelling: a popup URL, where the params are concatenated on so the
+        # literal the author wrote ends at the `?`. No `/servlets/` prefix either,
+        # so this shape reaches Java only through the bare-class rule.
+        assert ("openRevision", "OrderServlet") in handled
         # JS -> Java by URL, matched against the @WebServlet Endpoint.
         api = _pairs(nodes, out_edges, "CALLS_API")
         assert ("loadOrders", "ANY /servlets/scm/demo/OrderServlet") in api
@@ -274,6 +301,25 @@ def test_java_class_target_rejects_non_classes():
     assert _java_class_target("Order") == ""
     assert _java_class_target("hello world") == ""
     assert _java_class_target("/servlets/a/b") == ""
+
+
+def test_java_class_target_drops_the_query_separator():
+    """`URL + "FooServlet?" + params` is how a popup names its servlet.
+
+    Rejecting the whole literal because it ends in `?` hid 3655 call sites, and a
+    servlet reached only this way had no caller in the graph at all. _servlet_url
+    already split the query off; this is the same rule for the bare-class shape.
+    """
+    assert _java_class_target("OrderRevisionServlet?") == "OrderRevisionServlet"
+    assert _java_class_target("OrderRevisionServlet?x=1&y=2") == "OrderRevisionServlet"
+    assert _java_class_target("com.acme.demo.ajax.OrderAJAXHandler?a=1") == (
+        "com.acme.demo.ajax.OrderAJAXHandler")
+    # Dropping the query must not smuggle a non-class past the other rules: what
+    # precedes the `?` still has to look like a class.
+    assert _java_class_target("orderlist.jsp?id=1") == ""
+    assert _java_class_target("?OrderServlet") == ""
+    assert _java_class_target("a=b?OrderServlet") == ""
+    assert _java_class_target("Order?x=1") == ""
 
 
 def test_jsp_page_literal_rejects_prose():

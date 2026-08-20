@@ -254,8 +254,19 @@ def _java_class_target(literal: str) -> str:
 
     Anything else returns '' — including dotted strings with a lower-case tail
     (`com.acme.some.property`), which are config keys, not classes.
+
+    A QUERY SEPARATOR IS NOT PART OF THE NAME. The literal is normally the head of
+    a concatenation, so the `?` that starts the parameters is left dangling on the
+    end of the string the author actually wrote:
+
+        sURL = DMS_SERVLET_ORDERGROUP_URL + "OrderRevisionServlet?" + params;
+
+    _servlet_url has always dropped the query for the `/servlets/...` shape. Not
+    doing the same here meant 3655 call sites across 1279 files named a servlet
+    and resolved to nothing — and a servlet reached only this way looked like
+    dead code with no caller at all.
     """
-    s = literal.strip()
+    s = literal.strip().split("?", 1)[0].split("#", 1)[0].strip()
     if not s or any(ch in s for ch in " \t/\\<>?&=%(){}[]"):
         return ""
     if "." in s:

@@ -72,8 +72,28 @@ _EL_PROPERTY_RE = re.compile(r"\b(\w+)\.(\w+)")
 _IDENT_SAFE_RE = re.compile(r"[^0-9A-Za-z_]")
 
 # `<script src="...">`, any case, quoted or bare. The page's client-side half.
+#
+# Every alternative has to be able to swallow a whole `<%= %>` block, because the
+# value is a Java expression and the expression's own delimiters overrun whatever
+# would otherwise end the attribute. Two shapes, both common, both silent:
+#
+#   UNQUOTED, wrapping across lines — an unquoted value ends at whitespace, but
+#   the expression contains plenty:
+#     <SCRIPT language="Javascript"
+#         src=<%=DmsConstant.DMS_SCRIPT_ORDERGROUP_URL
+#                     + "orderrevision.js"+BROWSER_CACHE_VERSION%>>
+#   Ending at the first space captures `<%=DmsConstant.DMS_SCRIPT_ORDERGROUP_URL`
+#   and leaves the filename on the continuation line.
+#
+#   QUOTED, with nested quotes — the string literal inside the expression closes
+#   the attribute early:
+#     <SCRIPT src="<%=APP_SCRIPT_MASTER_URL + "custgroup2.js"+BROWSER_CACHE_VERSION%>">
+#   `"[^"]*"` ends at the quote before `custgroup2.js`, capturing only the prefix.
+#
+# In both cases the filename is the part lost, so the page reports NO scripts
+# rather than a wrong one — a hole that reads as "this page has no JS".
 _SCRIPT_SRC_RE = re.compile(
-    r"""<\s*script\b[^>]*?\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""",
+    r"""<\s*script\b[^>]*?\bsrc\s*=\s*("(?:<%=.*?%>|[^"])*"|'(?:<%=.*?%>|[^'])*'|(?:<%=.*?%>|[^\s>])+)""",
     re.IGNORECASE | re.DOTALL,
 )
 # A .js filename inside that attribute. Extracted as a TOKEN rather than taking

@@ -60,6 +60,29 @@ _log = get_logger(__name__)
 # That is why a version bump is the only way to invalidate it.
 _CACHE_VERSION = "v3"
 
+# Per-extension epoch, folded into the key for that extension only.
+#
+# The global version above is the right lever when the PAYLOAD changes, since a
+# CanonicalBundle written by an older scheme is unreadable whatever produced it.
+# It is the wrong lever when one extractor's OUTPUT changes: bumping it discards
+# 40k cached Java bundles to pick up a JSP-only fix, and re-running javac over
+# them costs hours to arrive at byte-identical results.
+#
+# An unlisted extension keys exactly as before, so raising an epoch here can only
+# ever cause a miss (re-extract) for the language named — never a stale hit, and
+# never a miss for any other language.
+#
+# .jsp = 2: `<script src=<%= ... %>>` with the expression broken across lines.
+# Epoch 1 matched the bare attribute as a run of non-space characters, so it
+# stopped at the newline and never saw the .js filename on the continuation line
+# — 906 pages in the ARAMEX tree cached with no INCLUDES_SCRIPT ref at all. Their
+# content sha has not changed, so nothing but this bump re-parses them.
+#
+# .js = 2: `"FooServlet?"` as a HANDLED_BY target. Epoch 1 rejected any literal
+# containing a `?`, so every servlet named with its query separator attached
+# resolved to nothing — 3655 call sites across 1279 files.
+_LANG_EPOCH = {".jsp": 2, ".js": 2}
+
 
 class ExtractCache:
     """Local-disk cache mapping a file content sha -> its CanonicalBundle.
@@ -87,7 +110,9 @@ class ExtractCache:
         # File identity folded in as a digest (relpaths can contain chars
         # awkward for filenames); the version dir isolates key/payload schemes.
         ident = hashlib.md5(f"{repo}\x1f{relpath}".encode("utf-8")).hexdigest()
-        return self._dir / _CACHE_VERSION / f"{sha}-{ident}.joblib"
+        epoch = _LANG_EPOCH.get(os.path.splitext(relpath)[1].lower(), 1)
+        suffix = "" if epoch == 1 else f"-e{epoch}"
+        return self._dir / _CACHE_VERSION / f"{sha}-{ident}{suffix}.joblib"
 
     def get(self, sha: str, repo: str, relpath: str) -> Optional[CanonicalBundle]:
         if not self._enabled or not sha:
